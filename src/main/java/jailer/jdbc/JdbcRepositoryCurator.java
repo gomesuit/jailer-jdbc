@@ -18,8 +18,8 @@ import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.data.Stat;
 
 import jailer.core.CommonUtil;
+import jailer.core.JailerAESEncryption;
 import jailer.core.JailerEncryption;
-import jailer.core.JailerEncryptionImpl;
 import jailer.core.PathManager;
 import jailer.core.ZookeeperTimeOutConf;
 import jailer.core.model.ConnectionInfo;
@@ -29,7 +29,7 @@ import jailer.core.model.JailerDataSource;
 
 public class JdbcRepositoryCurator {
 	private final CuratorFramework client;
-	private final JailerEncryption encryption = new JailerEncryptionImpl();
+	private final JailerEncryption encryption = new JailerAESEncryption();
 
 	// Timeout
 	private static final int default_sessionTimeoutMs = 6 * 1000;
