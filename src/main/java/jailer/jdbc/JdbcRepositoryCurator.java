@@ -14,6 +14,7 @@ import org.apache.curator.framework.api.CuratorWatcher;
 import org.apache.curator.framework.state.ConnectionState;
 import org.apache.curator.framework.state.ConnectionStateListener;
 import org.apache.curator.retry.ExponentialBackoffRetry;
+import org.apache.log4j.Logger;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.data.Stat;
 
@@ -28,6 +29,8 @@ import jailer.core.model.DataSourceKey;
 import jailer.core.model.JailerDataSource;
 
 public class JdbcRepositoryCurator {
+	private Logger log = Logger.getLogger(JdbcRepositoryCurator.class);
+	
 	private final CuratorFramework client;
 	private final JailerEncryption encryption = new JailerAESEncryption();
 
@@ -110,9 +113,9 @@ public class JdbcRepositoryCurator {
 	public void deleteConnection(ConnectionKey key) throws Exception{
 		client.delete().guaranteed().forPath(PathManager.getConnectionPath(key));
 		connectionKeyMap.remove(key);
-		System.out.println("remove前" + SessionExpiredWatcherMap);
+		log.debug("remove前" + SessionExpiredWatcherMap);
 		SessionExpiredWatcherMap.remove(key);
-		System.out.println("remove後" + SessionExpiredWatcherMap);
+		log.debug("remove後" + SessionExpiredWatcherMap);
 	}
 	
 	private Map<ConnectionKey, CuratorWatcher> SessionExpiredWatcherMap = new ConcurrentHashMap<>();
@@ -134,7 +137,7 @@ public class JdbcRepositoryCurator {
 		public void processResult(CuratorFramework client, CuratorEvent event) throws Exception {
 			client.checkExists().usingWatcher(watcher).forPath(PathManager.getDataSourcePath(key));
 			SessionExpiredWatcherMap.put(key, watcher);
-			System.out.println(SessionExpiredWatcherMap);
+			log.debug(SessionExpiredWatcherMap);
 		}
 		
 	}
@@ -148,11 +151,10 @@ public class JdbcRepositoryCurator {
 
 		@Override
 		public void eventReceived(CuratorFramework client, CuratorEvent event) throws Exception {
-			System.out.println("CuratorListener event.getType() : " + event.getType());
-			System.out.println("CuratorListener event.getPath() : " + event.getPath());
-			System.out.println("CuratorListener event.getName() : " + event.getName());
-			System.out.println("CuratorListener event.getResultCode() : " + event.getResultCode());
-			
+			log.debug("CuratorListener event.getType() : " + event.getType());
+			log.debug("CuratorListener event.getPath() : " + event.getPath());
+			log.debug("CuratorListener event.getName() : " + event.getName());
+			log.debug("CuratorListener event.getResultCode() : " + event.getResultCode());
 		}
 		
 	}
@@ -162,14 +164,14 @@ public class JdbcRepositoryCurator {
 		@Override
 		public void stateChanged(CuratorFramework client, ConnectionState newState) {
 			// TODO Auto-generated method stub
-			System.out.println("ConnectionStateListener newState : " + newState);
+			log.debug("ConnectionStateListener newState : " + newState);
 			switch(newState){
 				
 			case RECONNECTED:
 				for(Entry<ConnectionKey, CuratorWatcher> keyValue : SessionExpiredWatcherMap.entrySet()){
 					try {
 						watchDataSource(keyValue.getKey(), keyValue.getValue());
-						System.out.println("再ウォッチ");
+						log.debug("再ウォッチ");
 					} catch (Exception e) {
 						e.printStackTrace();
 						//発生しないはず
@@ -178,7 +180,7 @@ public class JdbcRepositoryCurator {
 				
 				for(Entry<ConnectionKey, ConnectionInfo> keyValue : connectionKeyMap.entrySet()){
 					try {
-						System.out.println("コネクションノード再生成");
+						log.debug("コネクションノード再生成");
 						repairConnectionNode(keyValue.getKey(), keyValue.getValue());
 					} catch (Exception e) {
 						e.printStackTrace();

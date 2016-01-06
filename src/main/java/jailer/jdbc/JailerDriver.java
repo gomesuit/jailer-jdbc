@@ -26,6 +26,7 @@ import java.util.logging.Logger;
 import org.apache.curator.framework.api.CuratorWatcher;
 
 public class JailerDriver implements Driver{
+	private org.apache.log4j.Logger log = org.apache.log4j.Logger.getLogger(JailerDriver.class);
 
 	private Driver lastUnderlyingDriverRequested;
 	
@@ -53,7 +54,7 @@ public class JailerDriver implements Driver{
 		ConnectionInfo connectionInfo = createConnectionInfo(jailerDataSource, jailerJdbcURI);
 		
 		ConnectionKey connectionKey = repository.registConnection(key, connectionInfo);
-		System.out.println("createConnection : " + connectionKey.getConnectionId());
+		log.debug("createConnection : " + connectionKey.getConnectionId());
 		return connectionKey;
 	}
 	
@@ -79,7 +80,7 @@ public class JailerDriver implements Driver{
 	}
 	
 	public void deleteConnection(ConnectionKey key) throws Exception{
-		System.out.println("deleteConnection : " + key.getConnectionId());
+		log.debug("deleteConnection : " + key.getConnectionId());
 		repository.deleteConnection(key);
 	}
 	
@@ -127,8 +128,6 @@ public class JailerDriver implements Driver{
 		try {
 			DataSourceKey key = repository.getDataSourceKey(JailerJdbcURIManager.getUUID(jailerJdbcURI));
 			ConnectionKey connectionKey = createConnection(key, JailerJdbcURIManager.getUri(url));
-			System.out.println(realUrl);
-			System.out.println(info);
 			return new JailerConnection(d.connect(realUrl, info), this, connectionKey, jailerJdbcURI);
 		} catch (Exception e) {
 			throw new SQLException(e);

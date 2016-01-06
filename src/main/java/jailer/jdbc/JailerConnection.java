@@ -23,10 +23,13 @@ import java.util.Properties;
 import java.util.concurrent.Executor;
 
 import org.apache.curator.framework.api.CuratorWatcher;
+import org.apache.log4j.Logger;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher.Event.EventType;
 
 public class JailerConnection implements Connection{
+	private Logger log = Logger.getLogger(JailerConnection.class);
+	
 	private Connection realConnection;
 	private JailerDriver driver;
 	private int statementNumber = 0;
@@ -55,11 +58,11 @@ public class JailerConnection implements Connection{
 		public void process(WatchedEvent event) throws Exception {
 			if(realConnection.isClosed()) return;
 			
-			System.out.println("DataSourceWatcher.process! : " + event.getType());
-			System.out.println("Path : " + event.getPath());
-			System.out.println("key : " + key.getConnectionId());
-			System.out.println("EventType : " + event.getType());
-			System.out.println("KeeperState : " + event.getState());
+			log.debug("DataSourceWatcher.process! : " + event.getType());
+			log.debug("Path : " + event.getPath());
+			log.debug("key : " + key.getConnectionId());
+			log.debug("EventType : " + event.getType());
+			log.debug("KeeperState : " + event.getState());
 			
 			if(event.getType() == EventType.NodeDataChanged){
 				//TODO existsとgetDataを分けるとイベントを取り逃す可能性がある
@@ -159,7 +162,7 @@ public class JailerConnection implements Connection{
 		try {
 			driver.deleteConnection(key);
 		} catch (Exception e) {
-			e.printStackTrace();
+			log.error(e);
 		}
 	}
 
