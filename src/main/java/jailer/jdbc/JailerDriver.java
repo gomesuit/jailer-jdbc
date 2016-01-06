@@ -88,6 +88,10 @@ public class JailerDriver implements Driver{
 		repository.watchDataSource(key, watcher);
 	}
 	
+	public void setWarningConnection(ConnectionKey key) throws Exception{
+		repository.setWarningConnection(key);
+	}
+	
 	private JailerDataSource getJailerDataSource(URI uri) throws Exception{
 		if(this.repository == null){
 			String connectString = JailerJdbcURIManager.getConnectString(uri);

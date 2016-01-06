@@ -32,9 +32,10 @@ public class JailerConnection implements Connection{
 	
 	private Connection realConnection;
 	private JailerDriver driver;
-	private int statementNumber = 0;
 	private ConnectionKey key;
 	private URI jailerJdbcURI;
+
+	private int statementNumber = 0;
 	
 	public JailerConnection(Connection realConnection, JailerDriver driver, ConnectionKey key, URI jailerJdbcURI) throws Exception{
 		this.realConnection = realConnection;
@@ -69,8 +70,9 @@ public class JailerConnection implements Connection{
 				Connection newConnection = null;
 				try{
 					newConnection = driver.reCreateConnection(jailerJdbcURI);
-				}catch(Exception e){
+				}catch(Exception e){ // コネクションの生成に失敗
 					driver.dataSourceWatcher(key, new DataSourceWatcher());
+					driver.setWarningConnection(key);
 					return;
 				}
 				

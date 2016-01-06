@@ -196,5 +196,15 @@ public class JdbcRepositoryCurator {
 		}
 		
 	}
+
+	public void setWarningConnection(ConnectionKey key) throws Exception {
+		byte[] result = client.getData().forPath(PathManager.getConnectionPath(key));
+		ConnectionInfo info = CommonUtil.jsonToObject(encryption.decoded(result), ConnectionInfo.class);
+		info.setWarning(true);
+		
+		String data = CommonUtil.objectToJson(info);
+		client.setData().forPath(PathManager.getConnectionPath(key), encryption.encode(data));
+		connectionKeyMap.put(key, info);
+	}
 	
 }
