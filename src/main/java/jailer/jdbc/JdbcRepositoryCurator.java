@@ -101,19 +101,22 @@ public class JdbcRepositoryCurator {
 		}
 	}
 	
-	public ConnectionKey registConnection(DataSourceKey key, ConnectionInfo info) throws Exception{
+	public ConnectionData registConnection(DataSourceKey key, ConnectionInfo info) throws Exception{
 		String data = CommonUtil.objectToJson(info);
 		String connectionPath = client.create().withMode(CreateMode.EPHEMERAL_SEQUENTIAL).forPath(PathManager.getDataSourcePath(key) + "/", encryption.encode(data));
 		
-		ConnectionKey connectionKey = new ConnectionKey();
-		connectionKey.setServiceId(key.getServiceId());
-		connectionKey.setGroupId(key.getGroupId());
-		connectionKey.setDataSourceId(key.getDataSourceId());
-		connectionKey.setConnectionId(connectionPath.substring(connectionPath.length() - 10, connectionPath.length()));
+		ConnectionData connectionData = new ConnectionData();
+		connectionData.setServiceId(key.getServiceId());
+		connectionData.setGroupId(key.getGroupId());
+		connectionData.setDataSourceId(key.getDataSourceId());
+		connectionData.setConnectionId(connectionPath.substring(connectionPath.length() - 10, connectionPath.length()));
+		connectionData.setUrl(info.getConnectUrl());
+		connectionData.setPropertyList(info.getPropertyList());
+		connectionData.setOptionalParam(info.getOptionalParam());
 		
-		connectionKeyMap.put(connectionKey, info);
+		connectionKeyMap.put(connectionData, info);
 		
-		return connectionKey;
+		return connectionData;
 	}
 	
 	public void repairConnectionNode(ConnectionKey key, ConnectionInfo info) throws Exception{

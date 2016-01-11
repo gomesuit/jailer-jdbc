@@ -1,8 +1,5 @@
 package jailer.jdbc;
 
-import jailer.core.model.ConnectionKey;
-
-import java.net.URI;
 import java.sql.Array;
 import java.sql.Blob;
 import java.sql.CallableStatement;
@@ -31,20 +28,18 @@ public class JailerConnection implements Connection{
 	private Logger log = Logger.getLogger(JailerConnection.class);
 
 	private final JailerDriver driver;
-	private final URI jailerJdbcURI;
 	
 	private Connection realConnection;
-	private ConnectionKey key;
+	private ConnectionData connectionData;
 
 	// 生成済みのstatement数
 	private int statementNumber = 0;
 	
-	public JailerConnection(Connection realConnection, JailerDriver driver, ConnectionKey key, URI jailerJdbcURI) throws Exception{
+	public JailerConnection(Connection realConnection, JailerDriver driver, ConnectionData connectionData) throws Exception{
 		this.realConnection = realConnection;
 		this.driver = driver;
-		this.key = key;
-		this.jailerJdbcURI = jailerJdbcURI;
-		driver.dataSourceWatcher(key, new DataSourceWatcher());
+		this.connectionData = connectionData;
+		driver.dataSourceWatcher(connectionData, new DataSourceWatcher());
 	}
 	
 	public void reduceStatementNumber(){
@@ -63,37 +58,49 @@ public class JailerConnection implements Connection{
 			
 			log.debug("DataSourceWatcher.process! : " + event.getType());
 			log.debug("Path : " + event.getPath());
-			log.debug("key : " + key.getConnectionId());
+			log.debug("key : " + connectionData.getConnectionId());
 			log.debug("EventType : " + event.getType());
 			log.debug("KeeperState : " + event.getState());
 			
 			if(event.getType() == EventType.NodeDataChanged){
 				Connection newConnection = null;
 				try{
-					newConnection = driver.reCreateConnection(key, new DataSourceWatcher());
+					newConnection = driver.reCreateConnection(connectionData, new DataSourceWatcher());
+					if(newConnection == null){
+						log.info("JDBC information has not been changed.");
+						return;
+					}
 				}catch(Exception e){
 					// コネクションの生成に失敗
-					log.error("Exception of reCreateConnection !!", e);
-					driver.setWarningConnection(key);
+					log.error("Error occurred by reCreateConnection !!", e);
+					driver.setWarningConnection(connectionData);
 					return;
 				}
 				
-				ConnectionKey newKey = driver.createConnection(key, jailerJdbcURI);
+				ConnectionData newConnectionData = driver.createConnection(connectionData, connectionData.getOptionalParam());
 				
-				Connection oldConnection = realConnection;
-				ConnectionKey oldKey = key;
-				realConnection = newConnection;
-				key = newKey;
-				
-				// 生成済みのstatement数が0になるまで待機
-				while(statementNumber != 0){
-					Thread.sleep(10);
-				}
-				
-				oldConnection.close();
-				driver.deleteConnection(oldKey);
-				
+				// コネクションの貼り替え
+				connectionSwap(newConnection, newConnectionData);
 			}
+		}
+		
+		private void connectionSwap(Connection newConnection, ConnectionData newConnectionData) throws Exception{
+			// 退避
+			Connection oldConnection = realConnection;
+			ConnectionData oldConnectionData = connectionData;
+			
+			// 貼り替え
+			realConnection = newConnection;
+			connectionData = newConnectionData;
+			
+			// 生成済みのstatement数が0になるまで待機
+			while(statementNumber != 0){
+				Thread.sleep(10);
+			}
+
+			// 旧コネクションクローズ
+			oldConnection.close();
+			driver.deleteConnection(oldConnectionData);
 		}
 		
 	}
@@ -156,7 +163,7 @@ public class JailerConnection implements Connection{
 	public void close() throws SQLException {
 		realConnection.close();
 		try {
-			driver.deleteConnection(key);
+			driver.deleteConnection(connectionData);
 		} catch (Exception e) {
 			log.error(e);
 		}

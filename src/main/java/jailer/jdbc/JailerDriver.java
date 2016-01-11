@@ -32,8 +32,11 @@ public class JailerDriver implements Driver{
 	
 	private JdbcRepositoryCurator repository = null;
 	
-	public Connection reCreateConnection(ConnectionKey key, CuratorWatcher watcher) throws Exception{
-		JailerDataSource jailerDataSource = repository.getJailerDataSourceWithWatch(key, watcher);
+	public Connection reCreateConnection(ConnectionData connectionData, CuratorWatcher watcher) throws Exception{
+		JailerDataSource jailerDataSource = repository.getJailerDataSourceWithWatch(connectionData, watcher);
+		if(!isChange(connectionData, jailerDataSource)){
+			return null;
+		}
 		Properties info = new Properties();
 		updateInfo(info, jailerDataSource.getPropertyList());
 		String realUrl = jailerDataSource.getUrl();
@@ -43,28 +46,43 @@ public class JailerDriver implements Driver{
 		return newConnection;
 	}
 	
+	public boolean isChange(ConnectionData connectionData, JailerDataSource newJailerDataSource){
+		if(!connectionData.getUrl().equals(newJailerDataSource.getUrl())){
+			return true;
+		}
+		if(connectionData.getPropertyList().size() != newJailerDataSource.getPropertyList().size()){
+			return true;
+		}
+		for(Entry<String, PropertyContents> keyValue : connectionData.getPropertyList().entrySet()){
+			if(!keyValue.getValue().equals(newJailerDataSource.getPropertyList().get(keyValue.getKey()))){
+				return true;
+			}
+		}
+		return false;
+	}
+	
 	private void updateInfo(Properties info, Map<String, PropertyContents> propertyList){
 		for(Entry<String, PropertyContents> keyValue : propertyList.entrySet()){
 			info.put(keyValue.getKey(), keyValue.getValue().getValue());
 		}
 	}
 
-	public ConnectionKey createConnection(DataSourceKey key, URI jailerJdbcURI) throws Exception{
-		JailerDataSource jailerDataSource = getJailerDataSource(jailerJdbcURI);
-		ConnectionInfo connectionInfo = createConnectionInfo(jailerDataSource, jailerJdbcURI);
+	public ConnectionData createConnection(DataSourceKey key, Map<String, String> optionalParam) throws Exception{
+		JailerDataSource jailerDataSource = repository.getJailerDataSource(key);
+		ConnectionInfo connectionInfo = createConnectionInfo(jailerDataSource, optionalParam);
 		
-		ConnectionKey connectionKey = repository.registConnection(key, connectionInfo);
-		log.debug("createConnection : " + connectionKey.getConnectionId());
-		return connectionKey;
+		ConnectionData connectionData = repository.registConnection(key, connectionInfo);
+		log.debug("createConnection : " + connectionData.getConnectionId());
+		return connectionData;
 	}
 	
-	private ConnectionInfo createConnectionInfo(JailerDataSource jailerDataSource, URI jailerJdbcURI){
+	private ConnectionInfo createConnectionInfo(JailerDataSource jailerDataSource, Map<String, String> optionalParam){
 		ConnectionInfo connectionInfo = new ConnectionInfo();
 		connectionInfo.setSinceConnectTime(new Date());
 		connectionInfo.setConnectUrl(jailerDataSource.getUrl());
 		connectionInfo.setHide(jailerDataSource.isHide());
 		connectionInfo.setPropertyList(jailerDataSource.getPropertyList());
-		connectionInfo.setOptionalParam(JailerJdbcURIManager.getParameterMap(jailerJdbcURI));
+		connectionInfo.setOptionalParam(optionalParam);
 		
 		try {
 			InetAddress inetAddress = InetAddress.getLocalHost();
@@ -131,8 +149,8 @@ public class JailerDriver implements Driver{
 		updateInfo(info, jailerDataSource.getPropertyList());
 		try {
 			DataSourceKey key = repository.getDataSourceKey(JailerJdbcURIManager.getUUID(jailerJdbcURI));
-			ConnectionKey connectionKey = createConnection(key, JailerJdbcURIManager.getUri(url));
-			return new JailerConnection(d.connect(realUrl, info), this, connectionKey, jailerJdbcURI);
+			ConnectionData connectionData = createConnection(key, JailerJdbcURIManager.getParameterMap(jailerJdbcURI));
+			return new JailerConnection(d.connect(realUrl, info), this, connectionData);
 		} catch (Exception e) {
 			throw new SQLException(e);
 		}
