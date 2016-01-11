@@ -32,8 +32,8 @@ public class JailerDriver implements Driver{
 	
 	private JdbcRepositoryCurator repository = null;
 	
-	public Connection reCreateConnection(URI jailerJdbcURI) throws Exception{
-		JailerDataSource jailerDataSource = getJailerDataSource(jailerJdbcURI);
+	public Connection reCreateConnection(ConnectionKey key, CuratorWatcher watcher) throws Exception{
+		JailerDataSource jailerDataSource = repository.getJailerDataSourceWithWatch(key, watcher);
 		Properties info = new Properties();
 		updateInfo(info, jailerDataSource.getPropertyList());
 		String realUrl = jailerDataSource.getUrl();

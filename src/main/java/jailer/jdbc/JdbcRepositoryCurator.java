@@ -7,7 +7,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
-import org.apache.curator.framework.api.BackgroundCallback;
 import org.apache.curator.framework.api.CuratorEvent;
 import org.apache.curator.framework.api.CuratorListener;
 import org.apache.curator.framework.api.CuratorWatcher;
@@ -35,12 +34,18 @@ public class JdbcRepositoryCurator {
 	private final JailerEncryption encryption = new JailerAESEncryption();
 
 	// Timeout
-	private static final int default_sessionTimeoutMs = 6 * 1000;
-	private static final int default_connectionTimeoutMs = 5 * 1000;
+	private static final int default_sessionTimeoutMs = 60 * 1000;
+	private static final int default_connectionTimeoutMs = 15 * 1000;
 	
 	// ExponentialBackoffRetry
 	private static final int default_baseSleepTimeMs = 1000;
 	private static final int default_maxRetries = 3;
+	
+	// 再Watch用Map
+	private Map<ConnectionKey, CuratorWatcher> SessionExpiredWatcherMap = new ConcurrentHashMap<>();
+	
+	// connectionノード再生成用
+	private Map<ConnectionKey, ConnectionInfo> connectionKeyMap = new ConcurrentHashMap<>();
 	
 	public JdbcRepositoryCurator(String connectString){
 		this(connectString, getDefaultRetryPolicy(), getDefaultZookeeperTimeOutConf());
@@ -75,6 +80,17 @@ public class JdbcRepositoryCurator {
 		return CommonUtil.jsonToObject(encryption.decoded(result), JailerDataSource.class);
 	}
 	
+	public JailerDataSource getJailerDataSourceWithWatch(ConnectionKey key, CuratorWatcher watcher) throws Exception{
+		byte[] result = client.getData().usingWatcher(watcher).forPath(PathManager.getDataSourcePath(key));
+		SessionExpiredWatcherMap.put(key, watcher);
+		return CommonUtil.jsonToObject(encryption.decoded(result), JailerDataSource.class);
+	}
+	
+	public void watchDataSource(ConnectionKey key, CuratorWatcher watcher) throws Exception{
+		client.checkExists().usingWatcher(watcher).forPath(PathManager.getDataSourcePath(key));
+		SessionExpiredWatcherMap.put(key, watcher);
+	}
+	
 	public boolean isExistsConnectionNode(ConnectionKey key) throws Exception{
 		Stat stat = client.checkExists().forPath(PathManager.getConnectionPath(key));
 		
@@ -99,8 +115,6 @@ public class JdbcRepositoryCurator {
 		
 		return connectionKey;
 	}
-
-	private Map<ConnectionKey, ConnectionInfo> connectionKeyMap = new ConcurrentHashMap<>();
 	
 	public void repairConnectionNode(ConnectionKey key, ConnectionInfo info) throws Exception{
 		String data = CommonUtil.objectToJson(info);
@@ -116,30 +130,6 @@ public class JdbcRepositoryCurator {
 		log.debug("remove前" + SessionExpiredWatcherMap);
 		SessionExpiredWatcherMap.remove(key);
 		log.debug("remove後" + SessionExpiredWatcherMap);
-	}
-	
-	private Map<ConnectionKey, CuratorWatcher> SessionExpiredWatcherMap = new ConcurrentHashMap<>();
-	
-	public void watchDataSource(ConnectionKey key, CuratorWatcher watcher) throws Exception{
-		client.getData().inBackground(new MyBackgroundCallback(key, watcher)).forPath(PathManager.getDataSourcePath(key));
-	}
-	
-	private class MyBackgroundCallback implements BackgroundCallback{
-		private ConnectionKey key;
-		private CuratorWatcher watcher;
-		
-		public MyBackgroundCallback(ConnectionKey key, CuratorWatcher watcher){
-			this.key = key;
-			this.watcher = watcher;
-		}
-
-		@Override
-		public void processResult(CuratorFramework client, CuratorEvent event) throws Exception {
-			client.checkExists().usingWatcher(watcher).forPath(PathManager.getDataSourcePath(key));
-			SessionExpiredWatcherMap.put(key, watcher);
-			log.debug(SessionExpiredWatcherMap);
-		}
-		
 	}
 	
 	public DataSourceKey getDataSourceKey(String uuid) throws Exception{
@@ -163,7 +153,6 @@ public class JdbcRepositoryCurator {
 
 		@Override
 		public void stateChanged(CuratorFramework client, ConnectionState newState) {
-			// TODO Auto-generated method stub
 			log.debug("ConnectionStateListener newState : " + newState);
 			switch(newState){
 				

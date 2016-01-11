@@ -29,12 +29,14 @@ import org.apache.zookeeper.Watcher.Event.EventType;
 
 public class JailerConnection implements Connection{
 	private Logger log = Logger.getLogger(JailerConnection.class);
+
+	private final JailerDriver driver;
+	private final URI jailerJdbcURI;
 	
 	private Connection realConnection;
-	private JailerDriver driver;
 	private ConnectionKey key;
-	private URI jailerJdbcURI;
 
+	// 生成済みのstatement数
 	private int statementNumber = 0;
 	
 	public JailerConnection(Connection realConnection, JailerDriver driver, ConnectionKey key, URI jailerJdbcURI) throws Exception{
@@ -66,32 +68,24 @@ public class JailerConnection implements Connection{
 			log.debug("KeeperState : " + event.getState());
 			
 			if(event.getType() == EventType.NodeDataChanged){
-				//TODO existsとgetDataを分けるとイベントを取り逃す可能性がある
 				Connection newConnection = null;
 				try{
-					newConnection = driver.reCreateConnection(jailerJdbcURI);
-				}catch(Exception e){ // コネクションの生成に失敗
-					driver.dataSourceWatcher(key, new DataSourceWatcher());
+					newConnection = driver.reCreateConnection(key, new DataSourceWatcher());
+				}catch(Exception e){
+					// コネクションの生成に失敗
+					log.error("Exception of reCreateConnection !!", e);
 					driver.setWarningConnection(key);
 					return;
 				}
 				
 				ConnectionKey newKey = driver.createConnection(key, jailerJdbcURI);
-				driver.dataSourceWatcher(newKey, new DataSourceWatcher());
-				
-//				newConnection.setAutoCommit(realConnection.getAutoCommit());
-//				newConnection.setCatalog(realConnection.getCatalog());
-//				newConnection.setClientInfo(realConnection.getClientInfo());
-//				newConnection.setHoldability(realConnection.getHoldability());
-//				//newConnection.setSchema(realConnection.getSchema());
-//				//newConnection.setTransactionIsolation(realConnection.getTransactionIsolation());
-//				newConnection.setTypeMap(realConnection.getTypeMap());
 				
 				Connection oldConnection = realConnection;
 				ConnectionKey oldKey = key;
 				realConnection = newConnection;
 				key = newKey;
 				
+				// 生成済みのstatement数が0になるまで待機
 				while(statementNumber != 0){
 					Thread.sleep(10);
 				}
