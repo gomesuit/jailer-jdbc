@@ -29,4 +29,9 @@ public class ConnectionData extends ConnectionKey{
 	public void setOptionalParam(Map<String, String> optionalParam) {
 		this.optionalParam = optionalParam;
 	}
+	@Override
+	public String toString() {
+		return "ConnectionData [url=" + url + ", toString()="
+				+ super.toString() + "]";
+	}
 }

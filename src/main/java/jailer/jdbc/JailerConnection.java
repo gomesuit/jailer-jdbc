@@ -56,18 +56,17 @@ public class JailerConnection implements Connection{
 		public void process(WatchedEvent event) throws Exception {
 			if(realConnection.isClosed()) return;
 			
-			log.debug("DataSourceWatcher.process! : " + event.getType());
-			log.debug("Path : " + event.getPath());
-			log.debug("key : " + connectionData.getConnectionId());
-			log.debug("EventType : " + event.getType());
-			log.debug("KeeperState : " + event.getState());
+			log.trace("Path : " + event.getPath());
+			log.trace("key : " + connectionData.getConnectionId());
+			log.trace("EventType : " + event.getType());
+			log.trace("KeeperState : " + event.getState());
 			
 			if(event.getType() == EventType.NodeDataChanged){
 				Connection newConnection = null;
 				try{
 					newConnection = driver.reCreateConnection(connectionData, new DataSourceWatcher());
 					if(newConnection == null){
-						log.info("JDBC information has not been changed.");
+						log.info("JDBC information has not been changed. : " + connectionData);
 						return;
 					}
 				}catch(Exception e){
@@ -94,9 +93,11 @@ public class JailerConnection implements Connection{
 			connectionData = newConnectionData;
 			
 			// 生成済みのstatement数が0になるまで待機
+			log.trace("Wait until the previously generated statement number becomes 0. : " + newConnectionData);
 			while(statementNumber != 0){
 				Thread.sleep(10);
 			}
+			log.trace("The previously generated statement number becomes 0. : " + newConnectionData);
 
 			// 旧コネクションクローズ
 			oldConnection.close();

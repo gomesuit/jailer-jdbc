@@ -83,12 +83,14 @@ public class JdbcRepositoryCurator {
 	public JailerDataSource getJailerDataSourceWithWatch(ConnectionKey key, CuratorWatcher watcher) throws Exception{
 		byte[] result = client.getData().usingWatcher(watcher).forPath(PathManager.getDataSourcePath(key));
 		SessionExpiredWatcherMap.put(key, watcher);
+		log.trace("SessionExpiredWatcherMap put : " + key);
 		return CommonUtil.jsonToObject(encryption.decoded(result), JailerDataSource.class);
 	}
 	
 	public void watchDataSource(ConnectionKey key, CuratorWatcher watcher) throws Exception{
 		client.checkExists().usingWatcher(watcher).forPath(PathManager.getDataSourcePath(key));
 		SessionExpiredWatcherMap.put(key, watcher);
+		log.trace("SessionExpiredWatcherMap put : " + key);
 	}
 	
 	public boolean isExistsConnectionNode(ConnectionKey key) throws Exception{
@@ -115,6 +117,7 @@ public class JdbcRepositoryCurator {
 		connectionData.setOptionalParam(info.getOptionalParam());
 		
 		connectionKeyMap.put(connectionData, info);
+		log.trace("connectionKeyMap put : " + key);
 		
 		return connectionData;
 	}
@@ -130,9 +133,11 @@ public class JdbcRepositoryCurator {
 	public void deleteConnection(ConnectionKey key) throws Exception{
 		client.delete().guaranteed().forPath(PathManager.getConnectionPath(key));
 		connectionKeyMap.remove(key);
-		log.debug("remove前" + SessionExpiredWatcherMap);
+		log.trace("connectionKeyMap remove : " + key);
+		log.trace("SessionExpiredWatcherMap before remove : " + SessionExpiredWatcherMap);
 		SessionExpiredWatcherMap.remove(key);
-		log.debug("remove後" + SessionExpiredWatcherMap);
+		log.trace("SessionExpiredWatcherMap after remove : "  + SessionExpiredWatcherMap);
+		log.trace("SessionExpiredWatcherMap remove : " + key);
 	}
 	
 	public DataSourceKey getDataSourceKey(String uuid) throws Exception{
@@ -163,20 +168,18 @@ public class JdbcRepositoryCurator {
 				for(Entry<ConnectionKey, CuratorWatcher> keyValue : SessionExpiredWatcherMap.entrySet()){
 					try {
 						watchDataSource(keyValue.getKey(), keyValue.getValue());
-						log.debug("再ウォッチ");
+						log.debug("re monitoring : " + keyValue.getKey());
 					} catch (Exception e) {
-						e.printStackTrace();
-						//発生しないはず
+						log.fatal("Exception by watchDataSource", e);
 					}
 				}
 				
 				for(Entry<ConnectionKey, ConnectionInfo> keyValue : connectionKeyMap.entrySet()){
 					try {
-						log.debug("コネクションノード再生成");
+						log.debug("re create connection node : " + keyValue.getKey());
 						repairConnectionNode(keyValue.getKey(), keyValue.getValue());
 					} catch (Exception e) {
-						e.printStackTrace();
-						//発生しないはず
+						log.fatal("Exception by repairConnectionNode", e);
 					}
 				}
 				

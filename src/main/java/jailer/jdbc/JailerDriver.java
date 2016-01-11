@@ -72,7 +72,7 @@ public class JailerDriver implements Driver{
 		ConnectionInfo connectionInfo = createConnectionInfo(jailerDataSource, optionalParam);
 		
 		ConnectionData connectionData = repository.registConnection(key, connectionInfo);
-		log.debug("createConnection : " + connectionData.getConnectionId());
+		log.info("createConnection : " + connectionData);
 		return connectionData;
 	}
 	
@@ -89,7 +89,7 @@ public class JailerDriver implements Driver{
 			connectionInfo.setHost(inetAddress.getHostName());
 			connectionInfo.setIpAddress(inetAddress.getHostAddress());
 		} catch (UnknownHostException e) {
-			e.printStackTrace();
+			log.error("UnknownHostException", e);
 			connectionInfo.setHost("UnknownHost");
 			connectionInfo.setIpAddress("UnknownHostAddress");
 		}
@@ -98,8 +98,8 @@ public class JailerDriver implements Driver{
 	}
 	
 	public void deleteConnection(ConnectionKey key) throws Exception{
-		log.debug("deleteConnection : " + key.getConnectionId());
 		repository.deleteConnection(key);
+		log.info("deleteConnection : " + key);
 	}
 	
 	public void dataSourceWatcher(ConnectionKey key, CuratorWatcher watcher) throws Exception{
