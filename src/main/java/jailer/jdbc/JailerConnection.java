@@ -177,7 +177,7 @@ public class JailerConnection implements Connection{
 
 	@Override
 	public DatabaseMetaData getMetaData() throws SQLException {
-		return realConnection.getMetaData();
+		return new JailerDatabaseMetaData(realConnection.getMetaData(), connectionData.getUrl());
 	}
 
 	@Override
