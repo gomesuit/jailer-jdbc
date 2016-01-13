@@ -47,7 +47,7 @@ public class JailerDriver implements Driver{
 	}
 	
 	public boolean isChange(ConnectionData connectionData, JailerDataSource newJailerDataSource){
-		if(!connectionData.getUrl().equals(newJailerDataSource.getUrl())){
+		if(!connectionData.getDatabaseUrl().equals(newJailerDataSource.getUrl())){
 			return true;
 		}
 		if(connectionData.getPropertyList().size() != newJailerDataSource.getPropertyList().size()){
@@ -67,11 +67,11 @@ public class JailerDriver implements Driver{
 		}
 	}
 
-	public ConnectionData createConnection(DataSourceKey key, Map<String, String> optionalParam) throws Exception{
+	public ConnectionData createConnection(String jailerUrl, DataSourceKey key, Map<String, String> optionalParam) throws Exception{
 		JailerDataSource jailerDataSource = repository.getJailerDataSource(key);
 		ConnectionInfo connectionInfo = createConnectionInfo(jailerDataSource, optionalParam);
 		
-		ConnectionData connectionData = repository.registConnection(key, connectionInfo);
+		ConnectionData connectionData = repository.registConnection(jailerUrl, key, connectionInfo);
 		log.info("createConnection : " + connectionData);
 		return connectionData;
 	}
@@ -142,6 +142,12 @@ public class JailerDriver implements Driver{
 		} catch (Exception e) {
 			throw new SQLException(e);
 		}
+		try {
+			Class.forName(jailerDataSource.getDriverName());
+		} catch (ClassNotFoundException e) {
+			log.error("ClassNotFoundException : " + jailerDataSource.getDriverName(), e);
+			throw new SQLException(e);
+		}
 		String realUrl = jailerDataSource.getUrl();
 		Driver d = DriverManager.getDriver(realUrl);
 		lastUnderlyingDriverRequested = d;
@@ -149,7 +155,7 @@ public class JailerDriver implements Driver{
 		updateInfo(info, jailerDataSource.getPropertyList());
 		try {
 			DataSourceKey key = repository.getDataSourceKey(JailerJdbcURIManager.getUUID(jailerJdbcURI));
-			ConnectionData connectionData = createConnection(key, JailerJdbcURIManager.getParameterMap(jailerJdbcURI));
+			ConnectionData connectionData = createConnection(url, key, JailerJdbcURIManager.getParameterMap(jailerJdbcURI));
 			return new JailerConnection(d.connect(realUrl, info), this, connectionData);
 		} catch (Exception e) {
 			throw new SQLException(e);
@@ -161,7 +167,15 @@ public class JailerDriver implements Driver{
 		JailerDataSource jailerDataSource = null;
 		try {
 			jailerDataSource = getJailerDataSource(JailerJdbcURIManager.getUri(url));
+			log.trace("acceptsURL = " + jailerDataSource.getUrl());
 		} catch (Exception e) {
+			log.error("fail to acceptsURL() = " + url);
+			throw new SQLException(e);
+		}
+		try {
+			Class.forName(jailerDataSource.getDriverName());
+		} catch (ClassNotFoundException e) {
+			log.error("ClassNotFoundException : " + jailerDataSource.getDriverName(), e);
 			throw new SQLException(e);
 		}
 		String realUrl = jailerDataSource.getUrl();
@@ -179,6 +193,12 @@ public class JailerDriver implements Driver{
 		try {
 			jailerDataSource = getJailerDataSource(JailerJdbcURIManager.getUri(url));
 		} catch (Exception e) {
+			throw new SQLException(e);
+		}
+		try {
+			Class.forName(jailerDataSource.getDriverName());
+		} catch (ClassNotFoundException e) {
+			log.error("ClassNotFoundException : " + jailerDataSource.getDriverName(), e);
 			throw new SQLException(e);
 		}
 		String realUrl = jailerDataSource.getUrl();
@@ -215,11 +235,18 @@ public class JailerDriver implements Driver{
 	}
 	
 	private Driver getUnderlyingDriver(String url) throws SQLException{
+		log.trace("getUnderlyingDriver(String url) url = " + url);
 		Enumeration<Driver> e = DriverManager.getDrivers();
 
 		Driver d;
 		while (e.hasMoreElements()) {
 			d = e.nextElement();
+			log.trace("check driver class of getUnderlyingDriver() = " + d.getClass().getName());
+			log.trace("my driver name = " + this.getClass().getName());
+			if(d.getClass().getName().equals(this.getClass().getName())){
+				log.trace("check driver class is mine. continue. ClassName = " + d.getClass().getName());
+				continue;
+			}
 
 			if (d.acceptsURL(url)) {
 				return d;

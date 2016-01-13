@@ -76,7 +76,7 @@ public class JailerConnection implements Connection{
 					return;
 				}
 				
-				ConnectionData newConnectionData = driver.createConnection(connectionData, connectionData.getOptionalParam());
+				ConnectionData newConnectionData = driver.createConnection(connectionData.getJailerUrl(), connectionData, connectionData.getOptionalParam());
 				
 				// コネクションの貼り替え
 				connectionSwap(newConnection, newConnectionData);
@@ -177,7 +177,7 @@ public class JailerConnection implements Connection{
 
 	@Override
 	public DatabaseMetaData getMetaData() throws SQLException {
-		return new JailerDatabaseMetaData(realConnection.getMetaData(), connectionData.getUrl());
+        return new JailerDatabaseMetaData(realConnection.getMetaData(), connectionData.getJailerUrl());
 	}
 
 	@Override

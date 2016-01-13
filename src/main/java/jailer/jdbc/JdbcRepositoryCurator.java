@@ -1,5 +1,15 @@
 package jailer.jdbc;
 
+import jailer.core.CommonUtil;
+import jailer.core.JailerAESEncryption;
+import jailer.core.JailerEncryption;
+import jailer.core.PathManager;
+import jailer.core.ZookeeperTimeOutConf;
+import jailer.core.model.ConnectionInfo;
+import jailer.core.model.ConnectionKey;
+import jailer.core.model.DataSourceKey;
+import jailer.core.model.JailerDataSource;
+
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
@@ -16,16 +26,6 @@ import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.apache.log4j.Logger;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.data.Stat;
-
-import jailer.core.CommonUtil;
-import jailer.core.JailerAESEncryption;
-import jailer.core.JailerEncryption;
-import jailer.core.PathManager;
-import jailer.core.ZookeeperTimeOutConf;
-import jailer.core.model.ConnectionInfo;
-import jailer.core.model.ConnectionKey;
-import jailer.core.model.DataSourceKey;
-import jailer.core.model.JailerDataSource;
 
 public class JdbcRepositoryCurator {
 	private Logger log = Logger.getLogger(JdbcRepositoryCurator.class);
@@ -77,6 +77,8 @@ public class JdbcRepositoryCurator {
 	
 	public JailerDataSource getJailerDataSource(DataSourceKey key) throws Exception{
 		byte[] result = client.getData().forPath(PathManager.getDataSourcePath(key));
+		log.trace("getJailerDataSource() path : " + PathManager.getDataSourcePath(key));
+		log.trace("getJailerDataSource() result : " + encryption.decoded(result));
 		return CommonUtil.jsonToObject(encryption.decoded(result), JailerDataSource.class);
 	}
 	
@@ -103,7 +105,7 @@ public class JdbcRepositoryCurator {
 		}
 	}
 	
-	public ConnectionData registConnection(DataSourceKey key, ConnectionInfo info) throws Exception{
+	public ConnectionData registConnection(String jailerUrl, DataSourceKey key, ConnectionInfo info) throws Exception{
 		String data = CommonUtil.objectToJson(info);
 		String connectionPath = client.create().withMode(CreateMode.EPHEMERAL_SEQUENTIAL).forPath(PathManager.getDataSourcePath(key) + "/", encryption.encode(data));
 		
@@ -112,7 +114,8 @@ public class JdbcRepositoryCurator {
 		connectionData.setGroupId(key.getGroupId());
 		connectionData.setDataSourceId(key.getDataSourceId());
 		connectionData.setConnectionId(connectionPath.substring(connectionPath.length() - 10, connectionPath.length()));
-		connectionData.setUrl(info.getConnectUrl());
+		connectionData.setJailerUrl(jailerUrl);
+		connectionData.setDatabaseUrl(info.getConnectUrl());
 		connectionData.setPropertyList(info.getPropertyList());
 		connectionData.setOptionalParam(info.getOptionalParam());
 		
@@ -142,6 +145,8 @@ public class JdbcRepositoryCurator {
 	
 	public DataSourceKey getDataSourceKey(String uuid) throws Exception{
 		byte[] result = client.getData().forPath(PathManager.getUuidPath(uuid));
+		log.trace("getDataSourceKey() path : " + PathManager.getUuidPath(uuid));
+		log.trace("getDataSourceKey() result : " + encryption.decoded(result));
 		return CommonUtil.jsonToObject(encryption.decoded(result), DataSourceKey.class);
 	}
 
