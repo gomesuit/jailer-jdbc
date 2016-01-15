@@ -1,15 +1,5 @@
 package jailer.jdbc;
 
-import jailer.core.CommonUtil;
-import jailer.core.JailerAESEncryption;
-import jailer.core.JailerEncryption;
-import jailer.core.PathManager;
-import jailer.core.ZookeeperTimeOutConf;
-import jailer.core.model.ConnectionInfo;
-import jailer.core.model.ConnectionKey;
-import jailer.core.model.DataSourceKey;
-import jailer.core.model.JailerDataSource;
-
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
@@ -26,6 +16,16 @@ import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.apache.log4j.Logger;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.data.Stat;
+
+import jailer.core.CommonUtil;
+import jailer.core.JailerAESEncryption;
+import jailer.core.JailerEncryption;
+import jailer.core.PathManager;
+import jailer.core.ZookeeperTimeOutConf;
+import jailer.core.model.ConnectionInfo;
+import jailer.core.model.ConnectionKey;
+import jailer.core.model.DataSourceKey;
+import jailer.core.model.JailerDataSource;
 
 public class JdbcRepositoryCurator {
 	private Logger log = Logger.getLogger(JdbcRepositoryCurator.class);
@@ -105,24 +105,20 @@ public class JdbcRepositoryCurator {
 		}
 	}
 	
-	public ConnectionData registConnection(String jailerUrl, DataSourceKey key, ConnectionInfo info) throws Exception{
+	public ConnectionKey registConnection(DataSourceKey key, ConnectionInfo info) throws Exception{
 		String data = CommonUtil.objectToJson(info);
 		String connectionPath = client.create().withMode(CreateMode.EPHEMERAL_SEQUENTIAL).forPath(PathManager.getDataSourcePath(key) + "/", encryption.encode(data));
 		
-		ConnectionData connectionData = new ConnectionData();
-		connectionData.setServiceId(key.getServiceId());
-		connectionData.setGroupId(key.getGroupId());
-		connectionData.setDataSourceId(key.getDataSourceId());
-		connectionData.setConnectionId(connectionPath.substring(connectionPath.length() - 10, connectionPath.length()));
-		connectionData.setJailerUrl(jailerUrl);
-		connectionData.setDatabaseUrl(info.getConnectUrl());
-		connectionData.setPropertyList(info.getPropertyList());
-		connectionData.setOptionalParam(info.getOptionalParam());
+		ConnectionKey connectionKey = new ConnectionKey();
+		connectionKey.setServiceId(key.getServiceId());
+		connectionKey.setGroupId(key.getGroupId());
+		connectionKey.setDataSourceId(key.getDataSourceId());
+		connectionKey.setConnectionId(connectionPath.substring(connectionPath.length() - 10, connectionPath.length()));
 		
-		connectionKeyMap.put(connectionData, info);
+		connectionKeyMap.put(connectionKey, info);
 		log.trace("connectionKeyMap put : " + key);
 		
-		return connectionData;
+		return connectionKey;
 	}
 	
 	public void repairConnectionNode(ConnectionKey key, ConnectionInfo info) throws Exception{
@@ -146,7 +142,7 @@ public class JdbcRepositoryCurator {
 	public DataSourceKey getDataSourceKey(String uuid) throws Exception{
 		byte[] result = client.getData().forPath(PathManager.getUuidPath(uuid));
 		log.trace("getDataSourceKey() path : " + PathManager.getUuidPath(uuid));
-		log.trace("getDataSourceKey() result : " + encryption.decoded(result));
+		//log.trace("getDataSourceKey() result : " + encryption.decoded(result));
 		return CommonUtil.jsonToObject(encryption.decoded(result), DataSourceKey.class);
 	}
 
@@ -166,7 +162,7 @@ public class JdbcRepositoryCurator {
 
 		@Override
 		public void stateChanged(CuratorFramework client, ConnectionState newState) {
-			log.debug("ConnectionStateListener newState : " + newState);
+			log.debug("ReConnectedListener newState : " + newState);
 			switch(newState){
 				
 			case RECONNECTED:

@@ -17,6 +17,7 @@ import java.sql.Statement;
 import java.sql.Struct;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 
 import org.apache.curator.framework.api.CuratorWatcher;
@@ -30,24 +31,26 @@ public class JailerConnection implements Connection{
 	private final JailerDriver driver;
 	
 	private Connection realConnection;
-	private ConnectionData connectionData;
-
-	// 生成済みのstatement数
-	private int statementNumber = 0;
+	private ConnectionKeyData connectionData;
 	
-	public JailerConnection(Connection realConnection, JailerDriver driver, ConnectionData connectionData) throws Exception{
+	// 生成済みのstatement数
+	private Map<Statement, Statement> statementMap = new ConcurrentHashMap<>();
+	
+	private static final int RELEASE_STATEMENT_TiMEOUT_SEC = 5;
+	
+	public JailerConnection(Connection realConnection, JailerDriver driver, ConnectionKeyData connectionData) throws Exception{
 		this.realConnection = realConnection;
 		this.driver = driver;
 		this.connectionData = connectionData;
 		driver.dataSourceWatcher(connectionData, new DataSourceWatcher());
 	}
 	
-	public void reduceStatementNumber(){
-		statementNumber--;
+	public void reduceStatementNumber(Statement statement){
+		statementMap.remove(statement);
 	}
 	
-	public void addStatementNumber(){
-		statementNumber++;
+	public void addStatementNumber(Statement statement){
+		statementMap.put(statement, statement);
 	}
 	
 	private class DataSourceWatcher implements CuratorWatcher{
@@ -62,6 +65,8 @@ public class JailerConnection implements Connection{
 			log.trace("KeeperState : " + event.getState());
 			
 			if(event.getType() == EventType.NodeDataChanged){
+				
+				// 新しいコネクションを生成
 				Connection newConnection = null;
 				try{
 					newConnection = driver.reCreateConnection(connectionData, new DataSourceWatcher());
@@ -70,40 +75,52 @@ public class JailerConnection implements Connection{
 						return;
 					}
 				}catch(Exception e){
-					// コネクションの生成に失敗
+					// コネクション生成失敗時の処理
 					log.error("Error occurred by reCreateConnection !!", e);
 					driver.setWarningConnection(connectionData);
 					return;
 				}
-				
-				ConnectionData newConnectionData = driver.createConnection(connectionData.getJailerUrl(), connectionData, connectionData.getOptionalParam());
-				
-				// コネクションの貼り替え
-				connectionSwap(newConnection, newConnectionData);
-			}
-		}
-		
-		private void connectionSwap(Connection newConnection, ConnectionData newConnectionData) throws Exception{
-			// 退避
-			Connection oldConnection = realConnection;
-			ConnectionData oldConnectionData = connectionData;
-			
-			// 貼り替え
-			realConnection = newConnection;
-			connectionData = newConnectionData;
-			
-			// 生成済みのstatement数が0になるまで待機
-			log.trace("Wait until the previously generated statement number becomes 0. : " + newConnectionData);
-			while(statementNumber != 0){
-				Thread.sleep(10);
-			}
-			log.trace("The previously generated statement number becomes 0. : " + newConnectionData);
 
-			// 旧コネクションクローズ
-			oldConnection.close();
-			driver.deleteConnection(oldConnectionData);
+				// 旧コネクション退避
+				Connection oldConnection = realConnection;
+				
+				// コネクション貼り替え
+				realConnection = newConnection;
+				
+				// 新しいコネクションノードを生成
+				ConnectionKeyData newConnectionData = driver.createConnection(connectionData, connectionData.getInfo().getOptionalParam());
+				
+				// 生成済みのstatement数が0になるまで待機
+				long start = System.currentTimeMillis();
+				long end;
+				long time;
+				log.trace("Wait until the previously generated statement number becomes 0. : " + connectionData);
+				while(statementMap.size() != 0){
+					Thread.sleep(10);
+					end = System.currentTimeMillis();
+					time = (end - start) / 1000;
+					if(time >= RELEASE_STATEMENT_TiMEOUT_SEC){
+						for(Statement statement : statementMap.keySet()){
+							log.error("releasing statement is timeout. close statement!! : " + connectionData);
+							statement.close();
+						}
+					}
+				}
+				log.trace("The previously generated statement number becomes 0. : " + connectionData);
+				
+				// 旧コネクションクローズ
+				oldConnection.close();
+				
+				// 旧コネクション接続情報退避
+				ConnectionKeyData oldConnectionData = connectionData;
+				
+				// コネクション接続情報更新
+				connectionData = newConnectionData;
+
+				// 旧コネクション接続情報削除
+				driver.deleteConnection(oldConnectionData);
+			}
 		}
-		
 	}
 
 	public Connection getRealConnection() {
@@ -177,7 +194,7 @@ public class JailerConnection implements Connection{
 
 	@Override
 	public DatabaseMetaData getMetaData() throws SQLException {
-        return new JailerDatabaseMetaData(realConnection.getMetaData(), connectionData.getJailerUrl());
+        return realConnection.getMetaData();
 	}
 
 	@Override

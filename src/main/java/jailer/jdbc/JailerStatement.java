@@ -13,7 +13,7 @@ public class JailerStatement implements Statement{
 	public JailerStatement(Statement statement, JailerConnection connection) {
 		this.realStatement = statement;
 		this.parentConnection = connection;
-		parentConnection.addStatementNumber();
+		parentConnection.addStatementNumber(this);
 	}
 
 	@Override
@@ -39,7 +39,7 @@ public class JailerStatement implements Statement{
 	@Override
 	public void close() throws SQLException {
 		realStatement.close();
-		parentConnection.reduceStatementNumber();
+		parentConnection.reduceStatementNumber(this);
 	}
 
 	@Override
