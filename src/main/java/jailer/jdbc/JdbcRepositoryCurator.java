@@ -18,10 +18,10 @@ import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.data.Stat;
 
 import jailer.core.CommonUtil;
-import jailer.core.JailerAESEncryption;
-import jailer.core.JailerEncryption;
 import jailer.core.PathManager;
 import jailer.core.ZookeeperTimeOutConf;
+import jailer.core.encrypt.JailerAESEncryption;
+import jailer.core.encrypt.JailerEncryption;
 import jailer.core.model.ConnectionInfo;
 import jailer.core.model.ConnectionKey;
 import jailer.core.model.DataSourceKey;
