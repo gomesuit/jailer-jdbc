@@ -76,21 +76,21 @@ public class JdbcRepositoryCurator {
 	}
 	
 	public JailerDataSource getJailerDataSource(DataSourceKey key) throws Exception{
-		byte[] result = client.getData().forPath(PathManager.getDataSourcePath(key));
-		log.trace("getJailerDataSource() path : " + PathManager.getDataSourcePath(key));
+		byte[] result = client.getData().forPath(PathManager.getDataSourceCorrentPath(key));
+		log.trace("getJailerDataSource() path : " + PathManager.getDataSourceCorrentPath(key));
 		log.trace("getJailerDataSource() result : " + encryption.decoded(result));
 		return CommonUtil.jsonToObject(encryption.decoded(result), JailerDataSource.class);
 	}
 	
 	public JailerDataSource getJailerDataSourceWithWatch(ConnectionKey key, CuratorWatcher watcher) throws Exception{
-		byte[] result = client.getData().usingWatcher(watcher).forPath(PathManager.getDataSourcePath(key));
+		byte[] result = client.getData().usingWatcher(watcher).forPath(PathManager.getDataSourceCorrentPath(key));
 		SessionExpiredWatcherMap.put(key, watcher);
 		log.trace("SessionExpiredWatcherMap put : " + key);
 		return CommonUtil.jsonToObject(encryption.decoded(result), JailerDataSource.class);
 	}
 	
 	public void watchDataSource(ConnectionKey key, CuratorWatcher watcher) throws Exception{
-		client.checkExists().usingWatcher(watcher).forPath(PathManager.getDataSourcePath(key));
+		client.checkExists().usingWatcher(watcher).forPath(PathManager.getDataSourceCorrentPath(key));
 		SessionExpiredWatcherMap.put(key, watcher);
 		log.trace("SessionExpiredWatcherMap put : " + key);
 	}
@@ -107,7 +107,7 @@ public class JdbcRepositoryCurator {
 	
 	public ConnectionKey registConnection(DataSourceKey key, ConnectionInfo info) throws Exception{
 		String data = CommonUtil.objectToJson(info);
-		String connectionPath = client.create().withMode(CreateMode.EPHEMERAL_SEQUENTIAL).forPath(PathManager.getDataSourcePath(key) + "/", encryption.encode(data));
+		String connectionPath = client.create().withMode(CreateMode.EPHEMERAL_SEQUENTIAL).forPath(PathManager.getDataSourceCorrentPath(key) + "/", encryption.encode(data));
 		
 		ConnectionKey connectionKey = new ConnectionKey();
 		connectionKey.setServiceId(key.getServiceId());
