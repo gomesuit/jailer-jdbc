@@ -15,9 +15,11 @@ import java.util.Enumeration;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Properties;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
 import org.apache.curator.framework.api.CuratorWatcher;
+import org.apache.zookeeper.KeeperException;
 
 import jailer.core.model.ConnectionInfo;
 import jailer.core.model.ConnectionKey;
@@ -31,6 +33,11 @@ public class JailerDriver implements Driver{
 	private Driver lastUnderlyingDriverRequested;
 	
 	private JdbcRepositoryCurator repository = null;
+
+    private static final String URL_PREFIX = "jdbc:jailer://";
+	
+	// 生成済みのstatement数
+	private Map<String, JailerDataSource> JailerDataSourceCache = new ConcurrentHashMap<>();
 	
 	static{
 		try {
@@ -42,9 +49,9 @@ public class JailerDriver implements Driver{
 	
 	public Connection reCreateConnection(ConnectionKeyData connectionData, CuratorWatcher watcher) throws Exception{
 		JailerDataSource jailerDataSource = repository.getJailerDataSourceWithWatch(connectionData, watcher);
-		if(!isChange(connectionData, jailerDataSource)){
-			return null;
-		}
+//		if(!isChange(connectionData, jailerDataSource)){
+//			return null;
+//		}
 		
 		Class.forName(jailerDataSource.getDriverName());
 		
@@ -58,50 +65,41 @@ public class JailerDriver implements Driver{
 		
 		lastUnderlyingDriverRequested = d;
 		
+		JailerDataSourceCache.put(jailerDataSource.getUuid(), jailerDataSource);
+		
 		return newConnection;
 	}
 	
-	public boolean isChange(ConnectionKeyData connectionData, JailerDataSource newJailerDataSource){
-		// Driverの変更チェック
-		if(!connectionData.getInfo().getDriverName().equals(newJailerDataSource.getDriverName())){
-			return true;
-		}
-		
-		// urlの変更チェック
-		if(!connectionData.getInfo().getConnectUrl().equals(newJailerDataSource.getUrl())){
-			return true;
-		}
-		
-		// プロパティの変更チェック
-		if(connectionData.getInfo().getPropertyList().size() != newJailerDataSource.getPropertyList().size()){
-			return true;
-		}
-		for(Entry<String, PropertyContents> keyValue : connectionData.getInfo().getPropertyList().entrySet()){
-			if(!keyValue.getValue().equals(newJailerDataSource.getPropertyList().get(keyValue.getKey()))){
-				return true;
-			}
-		}
-		
-		return false;
-	}
+//	public boolean isChange(ConnectionKeyData connectionData, JailerDataSource newJailerDataSource){
+//		// Driverの変更チェック
+//		if(!connectionData.getInfo().getDriverName().equals(newJailerDataSource.getDriverName())){
+//			return true;
+//		}
+//		
+//		// urlの変更チェック
+//		if(!connectionData.getInfo().getConnectUrl().equals(newJailerDataSource.getUrl())){
+//			return true;
+//		}
+//		
+//		// プロパティの変更チェック
+//		if(connectionData.getInfo().getPropertyList().size() != newJailerDataSource.getPropertyList().size()){
+//			return true;
+//		}
+//		for(Entry<String, PropertyContents> keyValue : connectionData.getInfo().getPropertyList().entrySet()){
+//			if(!keyValue.getValue().equals(newJailerDataSource.getPropertyList().get(keyValue.getKey()))){
+//				return true;
+//			}
+//		}
+//		
+//		return false;
+//	}
 
 	public ConnectionKeyData createConnection(DataSourceKey key, Map<String, String> optionalParam) throws Exception{
 		JailerDataSource jailerDataSource = repository.getJailerDataSource(key);
 		ConnectionInfo connectionInfo = createConnectionInfo(jailerDataSource, optionalParam);
 		
-		ConnectionKey connectionKey = repository.registConnection(key, connectionInfo);
-		ConnectionKeyData connectionData = createConnectionData(connectionKey, connectionInfo);
+		ConnectionKeyData connectionData = repository.registConnection(key, connectionInfo);
 		log.info("createConnection : " + connectionData);
-		return connectionData;
-	}
-	
-	private ConnectionKeyData createConnectionData(ConnectionKey key, ConnectionInfo info){
-		ConnectionKeyData connectionData = new ConnectionKeyData();
-		connectionData.setServiceId(key.getServiceId());
-		connectionData.setGroupId(key.getGroupId());
-		connectionData.setDataSourceId(key.getDataSourceId());
-		connectionData.setConnectionId(key.getConnectionId());
-		connectionData.setInfo(info);
 		return connectionData;
 	}
 	
@@ -145,10 +143,15 @@ public class JailerDriver implements Driver{
 		
 		// synchronized
 		this.repository = getRepository(connectString);
-		
-		DataSourceKey key = repository.getDataSourceKey(JailerJdbcURIManager.getUUID(uri));
-		JailerDataSource jailerDataSource = repository.getJailerDataSource(key);
-		return jailerDataSource;
+		String uuid = JailerJdbcURIManager.getUUID(uri);
+		try{
+			DataSourceKey key = repository.getDataSourceKey(uuid);
+			JailerDataSource jailerDataSource = repository.getJailerDataSource(key);
+			JailerDataSourceCache.put(uuid, jailerDataSource);
+			return jailerDataSource;
+		}catch(KeeperException e){
+			return JailerDataSourceCache.get(uuid);
+		}
 	}
 	
 	synchronized private JdbcRepositoryCurator getRepository(String connectString){
@@ -194,6 +197,10 @@ public class JailerDriver implements Driver{
 	
 	@Override
 	public boolean acceptsURL(String url) throws SQLException {
+		if(!url.startsWith(URL_PREFIX)){
+			return false;
+		}
+		
 		URI jailerJdbcURI = getjailerJdbcURIByOverrideMethod(url);
 		JailerDataSource jailerDataSource = getJailerDataSourceByOverrideMethod(jailerJdbcURI);
 		loadDriverClassByOverrideMethod(jailerDataSource.getDriverName());

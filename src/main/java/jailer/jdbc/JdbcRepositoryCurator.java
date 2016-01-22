@@ -34,8 +34,8 @@ public class JdbcRepositoryCurator {
 	private final JailerEncryption encryption = new JailerAESEncryption();
 
 	// Timeout
-	private static final int default_sessionTimeoutMs = 60 * 1000;
-	private static final int default_connectionTimeoutMs = 15 * 1000;
+	private static final int default_sessionTimeoutMs = 20 * 1000;
+	private static final int default_connectionTimeoutMs = 10 * 1000;
 	
 	// ExponentialBackoffRetry
 	private static final int default_baseSleepTimeMs = 1000;
@@ -105,20 +105,21 @@ public class JdbcRepositoryCurator {
 		}
 	}
 	
-	public ConnectionKey registConnection(DataSourceKey key, ConnectionInfo info) throws Exception{
+	public ConnectionKeyData registConnection(DataSourceKey key, ConnectionInfo info) throws Exception{
 		String data = CommonUtil.objectToJson(info);
 		String connectionPath = client.create().withMode(CreateMode.EPHEMERAL_SEQUENTIAL).forPath(PathManager.getDataSourceCorrentPath(key) + "/", encryption.encode(data));
 		
-		ConnectionKey connectionKey = new ConnectionKey();
-		connectionKey.setServiceId(key.getServiceId());
-		connectionKey.setGroupId(key.getGroupId());
-		connectionKey.setDataSourceId(key.getDataSourceId());
-		connectionKey.setConnectionId(connectionPath.substring(connectionPath.length() - 10, connectionPath.length()));
+		ConnectionKeyData connectionData = new ConnectionKeyData();
+		connectionData.setServiceId(key.getServiceId());
+		connectionData.setGroupId(key.getGroupId());
+		connectionData.setDataSourceId(key.getDataSourceId());
+		connectionData.setConnectionId(connectionPath.substring(connectionPath.length() - 10, connectionPath.length()));
+		connectionData.setInfo(info);
 		
-		connectionKeyMap.put(connectionKey, info);
-		log.trace("connectionKeyMap put : " + key);
+		connectionKeyMap.put(connectionData, info);
+		log.trace("connectionKeyMap put : " + connectionData);
 		
-		return connectionKey;
+		return connectionData;
 	}
 	
 	public void repairConnectionNode(ConnectionKey key, ConnectionInfo info) throws Exception{
@@ -131,8 +132,12 @@ public class JdbcRepositoryCurator {
 	
 	public void deleteConnection(ConnectionKey key) throws Exception{
 		client.delete().guaranteed().forPath(PathManager.getConnectionPath(key));
+		
+		log.trace("connectionKeyMap before remove : " + connectionKeyMap);
 		connectionKeyMap.remove(key);
+		log.trace("connectionKeyMap after remove : " + connectionKeyMap);
 		log.trace("connectionKeyMap remove : " + key);
+		
 		log.trace("SessionExpiredWatcherMap before remove : " + SessionExpiredWatcherMap);
 		SessionExpiredWatcherMap.remove(key);
 		log.trace("SessionExpiredWatcherMap after remove : "  + SessionExpiredWatcherMap);
@@ -142,7 +147,6 @@ public class JdbcRepositoryCurator {
 	public DataSourceKey getDataSourceKey(String uuid) throws Exception{
 		byte[] result = client.getData().forPath(PathManager.getUuidPath(uuid));
 		log.trace("getDataSourceKey() path : " + PathManager.getUuidPath(uuid));
-		//log.trace("getDataSourceKey() result : " + encryption.decoded(result));
 		return CommonUtil.jsonToObject(encryption.decoded(result), DataSourceKey.class);
 	}
 
@@ -201,6 +205,7 @@ public class JdbcRepositoryCurator {
 		String data = CommonUtil.objectToJson(info);
 		client.setData().forPath(PathManager.getConnectionPath(key), encryption.encode(data));
 		connectionKeyMap.put(key, info);
+		log.trace("connectionKeyMap put : " + key);
 	}
 	
 }
