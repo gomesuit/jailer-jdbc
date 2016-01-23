@@ -97,16 +97,6 @@ public class JdbcRepositoryCurator {
 		log.trace("SessionExpiredWatcherMap put : " + key);
 	}
 	
-	public boolean isExistsConnectionNode(ConnectionKey key) throws Exception{
-		Stat stat = client.checkExists().forPath(PathManager.getConnectionPath(key));
-		
-		if(stat != null){
-			return true;
-		}else{
-			return false;
-		}
-	}
-	
 	public ConnectionKeyData registConnection(DataSourceKey key, ConnectionInfo info) throws Exception{
 		String data = CommonUtil.objectToJson(info);
 		String connectionPath = client.create().withMode(CreateMode.EPHEMERAL_SEQUENTIAL).forPath(PathManager.getDataSourceCorrentPath(key) + "/", encryption.encrypt(data));
@@ -134,6 +124,16 @@ public class JdbcRepositoryCurator {
 		client.create().withMode(CreateMode.EPHEMERAL).forPath(PathManager.getConnectionPath(key), encryption.encrypt(data));
 	}
 	
+	private boolean isExistsConnectionNode(ConnectionKey key) throws Exception{
+		Stat stat = client.checkExists().forPath(PathManager.getConnectionPath(key));
+		
+		if(stat != null){
+			return true;
+		}else{
+			return false;
+		}
+	}
+
 	public void setWarningConnection(ConnectionKey key) throws Exception {
 		byte[] result = client.getData().forPath(PathManager.getConnectionPath(key));
 		ConnectionInfo info = CommonUtil.jsonToObject(encryption.decrypt(result), ConnectionInfo.class);
