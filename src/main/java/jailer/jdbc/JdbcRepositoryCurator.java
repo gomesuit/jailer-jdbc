@@ -1,5 +1,6 @@
 package jailer.jdbc;
 
+import java.net.InetAddress;
 import java.sql.Statement;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -128,7 +129,8 @@ public class JdbcRepositoryCurator {
 			String connectionPath = client.create().withMode(CreateMode.EPHEMERAL_SEQUENTIAL).forPath(PathManager.getDataSourceCorrentPath(key) + "/", encryption.encrypt(data));
 			connectionId = (connectionPath.substring(connectionPath.length() - 10, connectionPath.length()));
 		}else{
-			connectionId = DisConnectedNodeIdManager.getId();
+			InetAddress inetAddress = InetAddress.getLocalHost();
+			connectionId = DisConnectedNodeIdManager.getId(inetAddress.getHostAddress());
 		}
 		
 		connectionKeyMap.put(new ConnectionKey(key, connectionId), info);

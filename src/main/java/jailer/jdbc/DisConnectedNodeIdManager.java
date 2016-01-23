@@ -1,9 +1,9 @@
 package jailer.jdbc;
 
 public class DisConnectedNodeIdManager {
-	private static long connectionId = 10000000000L;
+	private static long connectionId = 1L;
 	
-	synchronized public static String getId(){
-		return String.valueOf(connectionId++);
+	synchronized public static String getId(String prefix){
+		return prefix + "-" + connectionId++;
 	}
 }
