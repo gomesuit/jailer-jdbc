@@ -97,23 +97,23 @@ public class JdbcRepositoryCurator {
 		log.trace("SessionExpiredWatcherMap put : " + key);
 	}
 	
-	public ConnectionKeyData registConnection(DataSourceKey key, ConnectionInfo info) throws Exception{
+	public String registConnection(DataSourceKey key, ConnectionInfo info) throws Exception{
 		String data = CommonUtil.objectToJson(info);
 		String connectionPath = client.create().withMode(CreateMode.EPHEMERAL_SEQUENTIAL).forPath(PathManager.getDataSourceCorrentPath(key) + "/", encryption.encrypt(data));
 		
-		ConnectionKeyData connectionData = new ConnectionKeyData();
-		connectionData.setServiceId(key.getServiceId());
-		connectionData.setGroupId(key.getGroupId());
-		connectionData.setDataSourceId(key.getDataSourceId());
-		connectionData.setConnectionId(connectionPath.substring(connectionPath.length() - 10, connectionPath.length()));
-		connectionData.setInfo(info);
+//		ConnectionKeyData connectionData = new ConnectionKeyData();
+//		connectionData.setServiceId(key.getServiceId());
+//		connectionData.setGroupId(key.getGroupId());
+//		connectionData.setDataSourceId(key.getDataSourceId());
+//		connectionData.setConnectionId(connectionPath.substring(connectionPath.length() - 10, connectionPath.length()));
+//		connectionData.setInfo(info);
+		String connectionId = (connectionPath.substring(connectionPath.length() - 10, connectionPath.length()));
+		connectionKeyMap.put(new ConnectionKey(key, connectionId), info);
+//		log.trace("connectionKeyMap put : " + connectionData);
+//
+//		log.info("createConnection : " + connectionData);
 		
-		connectionKeyMap.put(connectionData, info);
-		log.trace("connectionKeyMap put : " + connectionData);
-
-		log.info("createConnection : " + connectionData);
-		
-		return connectionData;
+		return connectionId;
 	}
 	
 	public void repairConnectionNode(ConnectionKey key, ConnectionInfo info) throws Exception{

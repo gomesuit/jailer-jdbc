@@ -45,8 +45,8 @@ public class JailerDriver implements Driver{
 		}
 	}
 	
-	public ConnectionCapsule reCreateConnection(ConnectionKeyData connectionData) throws Exception{
-		JailerDataSource jailerDataSource = repository.getJailerDataSource(connectionData);
+	public ConnectionCapsule reCreateConnection(DataSourceKey key) throws Exception{
+		JailerDataSource jailerDataSource = repository.getJailerDataSource(key);
 //		if(!isChange(connectionData, jailerDataSource)){
 //			return null;
 //		}

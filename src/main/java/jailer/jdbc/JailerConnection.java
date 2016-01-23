@@ -1,10 +1,10 @@
 package jailer.jdbc;
 
 import jailer.core.model.ConnectionInfo;
+import jailer.core.model.ConnectionKey;
 import jailer.core.model.DataSourceKey;
 import jailer.core.model.JailerDataSource;
 import jailer.jdbc.model.ConnectionCapsule;
-import jailer.jdbc.model.ConnectionKeyData;
 
 import java.net.InetAddress;
 import java.net.URI;
@@ -43,9 +43,10 @@ public class JailerConnection implements Connection{
 	private final URI jailerJdbcURI;
 	private final DataSourceKey key;
 	
-	private ConnectionKeyData connectionData;
 	private ConnectionCapsule realConnectionCapsule;
 	
+	private String connectionId;
+	private ConnectionInfo info;
 	
 	// 生成済みのstatement数
 	private Map<Statement, Statement> statementMap = new ConcurrentHashMap<>();
@@ -58,8 +59,9 @@ public class JailerConnection implements Connection{
 		this.repository = repository;
 		this.jailerJdbcURI = jailerJdbcURI;
 		this.key = key;
-		this.connectionData = createConnection(this.realConnectionCapsule.getJailerDataSource());
-		this.repository.watchDataSource(connectionData, new DataSourceWatcher());
+		this.info = createConnectionInfo(this.realConnectionCapsule.getJailerDataSource());
+		this.connectionId = createConnection(this.realConnectionCapsule.getJailerDataSource(), this.info);
+		this.repository.watchDataSource(new ConnectionKey(this.key, this.connectionId), new DataSourceWatcher());
 	}
 	
 	public void reduceStatementNumber(Statement statement){
@@ -70,10 +72,8 @@ public class JailerConnection implements Connection{
 		statementMap.put(statement, statement);
 	}
 
-	private ConnectionKeyData createConnection(JailerDataSource jailerDataSource) throws Exception{
-		ConnectionInfo connectionInfo = createConnectionInfo(jailerDataSource);
-		ConnectionKeyData connectionData = repository.registConnection(this.key, connectionInfo);
-		return connectionData;
+	private String createConnection(JailerDataSource jailerDataSource, ConnectionInfo info) throws Exception{
+		return repository.registConnection(this.key, info);
 	}
 
 	private ConnectionInfo createConnectionInfo(JailerDataSource jailerDataSource){
@@ -105,7 +105,7 @@ public class JailerConnection implements Connection{
 			if(realConnectionCapsule.getConnection().isClosed()) return;
 			
 			log.trace("Path : " + event.getPath());
-			log.trace("key : " + connectionData.getConnectionId());
+			log.trace("key : " + connectionId);
 			log.trace("EventType : " + event.getType());
 			log.trace("KeeperState : " + event.getState());
 			
@@ -114,7 +114,7 @@ public class JailerConnection implements Connection{
 				// 新しいコネクションを生成
 				ConnectionCapsule newConnectionCapsule = null;
 				try{
-					newConnectionCapsule = driver.reCreateConnection(connectionData);
+					newConnectionCapsule = driver.reCreateConnection(key);
 //					if(newConnection == null){
 //						log.info("JDBC information has not been changed. : " + connectionData);
 //						return;
@@ -122,10 +122,10 @@ public class JailerConnection implements Connection{
 				}catch(Exception e){
 					// コネクション生成失敗時の処理
 					log.error("Error occurred by reCreateConnection !!", e);
-					repository.setWarningConnection(connectionData);
+					repository.setWarningConnection(new ConnectionKey(key, connectionId));
 					return;
 				}finally{
-					repository.watchDataSource(connectionData, new DataSourceWatcher());
+					repository.watchDataSource(new ConnectionKey(key, connectionId), new DataSourceWatcher());
 				}
 				
 				if(realConnectionCapsule.getConnection().getAutoCommit()){
@@ -137,37 +137,38 @@ public class JailerConnection implements Connection{
 					realConnectionCapsule = newConnectionCapsule;
 					
 					// 新しいコネクションノードを生成
-					ConnectionKeyData newConnectionData = createConnection(realConnectionCapsule.getJailerDataSource());
+					ConnectionInfo info = createConnectionInfo(realConnectionCapsule.getJailerDataSource());
+					String newConnectionId = createConnection(realConnectionCapsule.getJailerDataSource(), info);
 					
 					// 生成済みのstatement数が0になるまで待機
 					long start = System.currentTimeMillis();
 					long end;
 					long time;
-					log.trace("Wait until the previously generated statement number becomes 0. : " + connectionData);
+					log.trace("Wait until the previously generated statement number becomes 0. : " + connectionId);
 					while(statementMap.size() != 0){
 						Thread.sleep(10);
 						end = System.currentTimeMillis();
 						time = (end - start) / 1000;
 						if(time >= RELEASE_STATEMENT_TiMEOUT_SEC){
 							for(Statement statement : statementMap.keySet()){
-								log.error("releasing statement is timeout. close statement!! : " + connectionData);
+								log.error("releasing statement is timeout. close statement!! : " + connectionId);
 								statement.close();
 							}
 						}
 					}
-					log.trace("The previously generated statement number becomes 0. : " + connectionData);
+					log.trace("The previously generated statement number becomes 0. : " + connectionId);
 					
 					// 旧コネクションクローズ
 					oldConnection.close();
 					
 					// 旧コネクション接続情報退避
-					ConnectionKeyData oldConnectionData = connectionData;
+					String oldConnectionId = connectionId;
 					
 					// コネクション接続情報更新
-					connectionData = newConnectionData;
-
+					connectionId = newConnectionId;
+					
 					// 旧コネクション接続情報削除
-					repository.deleteConnection(oldConnectionData);
+					repository.deleteConnection(new ConnectionKey(key, oldConnectionId));
 					
 				}else{
 					newConnectionCapsule.getConnection().close();
@@ -236,15 +237,15 @@ public class JailerConnection implements Connection{
 	public void close() throws SQLException {
 		getRealConnection().close();
 		
-		if(connectionData != null){
+		if(connectionId != null){
 			try {
-				repository.deleteConnection(connectionData);
+				repository.deleteConnection(new ConnectionKey(key, connectionId));
 			} catch (Exception e) {
 				log.error(e);
 			}
 		}
 		
-		connectionData = null;
+		connectionId = null;
 	}
 
 	@Override
