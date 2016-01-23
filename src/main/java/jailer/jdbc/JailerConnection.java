@@ -114,10 +114,6 @@ public class JailerConnection implements Connection{
 				ConnectionCapsule newConnectionCapsule = null;
 				try{
 					newConnectionCapsule = driver.reCreateConnection(key);
-//					if(newConnection == null){
-//						log.info("JDBC information has not been changed. : " + connectionData);
-//						return;
-//					}
 				}catch(Exception e){
 					// コネクション生成失敗時の処理
 					log.error("Error occurred by reCreateConnection !!", e);

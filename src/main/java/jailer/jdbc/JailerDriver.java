@@ -15,10 +15,6 @@ import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
-import org.apache.curator.framework.CuratorFramework;
-import org.apache.curator.framework.CuratorFrameworkFactory;
-import org.apache.curator.retry.ExponentialBackoffRetry;
-
 import jailer.core.model.DataSourceKey;
 import jailer.core.model.JailerDataSource;
 import jailer.core.model.PropertyContents;
@@ -46,9 +42,6 @@ public class JailerDriver implements Driver{
 	
 	public ConnectionCapsule reCreateConnection(DataSourceKey key) throws Exception{
 		JailerDataSource jailerDataSource = repository.getJailerDataSource(key);
-//		if(!isChange(connectionData, jailerDataSource)){
-//			return null;
-//		}
 		
 		Class.forName(jailerDataSource.getDriverName());
 		
@@ -66,30 +59,6 @@ public class JailerDriver implements Driver{
 		
 		return new ConnectionCapsule(newConnection, jailerDataSource);
 	}
-	
-//	public boolean isChange(ConnectionKeyData connectionData, JailerDataSource newJailerDataSource){
-//		// Driverの変更チェック
-//		if(!connectionData.getInfo().getDriverName().equals(newJailerDataSource.getDriverName())){
-//			return true;
-//		}
-//		
-//		// urlの変更チェック
-//		if(!connectionData.getInfo().getConnectUrl().equals(newJailerDataSource.getUrl())){
-//			return true;
-//		}
-//		
-//		// プロパティの変更チェック
-//		if(connectionData.getInfo().getPropertyList().size() != newJailerDataSource.getPropertyList().size()){
-//			return true;
-//		}
-//		for(Entry<String, PropertyContents> keyValue : connectionData.getInfo().getPropertyList().entrySet()){
-//			if(!keyValue.getValue().equals(newJailerDataSource.getPropertyList().get(keyValue.getKey()))){
-//				return true;
-//			}
-//		}
-//		
-//		return false;
-//	}
 	
 	private JailerDataSource getJailerDataSource(URI uri) throws Exception{
 		String connectString = JailerJdbcURIManager.getConnectString(uri);
