@@ -26,7 +26,6 @@ import jailer.core.model.ConnectionInfo;
 import jailer.core.model.ConnectionKey;
 import jailer.core.model.DataSourceKey;
 import jailer.core.model.JailerDataSource;
-import jailer.jdbc.model.ConnectionKeyData;
 
 public class JdbcRepositoryCurator {
 	private Logger log = Logger.getLogger(JdbcRepositoryCurator.class);

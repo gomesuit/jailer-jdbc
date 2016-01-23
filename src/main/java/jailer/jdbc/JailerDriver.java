@@ -23,7 +23,6 @@ import jailer.core.model.DataSourceKey;
 import jailer.core.model.JailerDataSource;
 import jailer.core.model.PropertyContents;
 import jailer.jdbc.model.ConnectionCapsule;
-import jailer.jdbc.model.ConnectionKeyData;
 
 public class JailerDriver implements Driver{
 	private org.apache.log4j.Logger log = org.apache.log4j.Logger.getLogger(JailerDriver.class);

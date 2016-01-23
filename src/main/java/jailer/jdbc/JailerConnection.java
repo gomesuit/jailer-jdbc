@@ -46,7 +46,6 @@ public class JailerConnection implements Connection{
 	private ConnectionCapsule realConnectionCapsule;
 	
 	private String connectionId;
-	private ConnectionInfo info;
 	
 	// 生成済みのstatement数
 	private Map<Statement, Statement> statementMap = new ConcurrentHashMap<>();
@@ -59,8 +58,7 @@ public class JailerConnection implements Connection{
 		this.repository = repository;
 		this.jailerJdbcURI = jailerJdbcURI;
 		this.key = key;
-		this.info = createConnectionInfo(this.realConnectionCapsule.getJailerDataSource());
-		this.connectionId = createConnection(this.realConnectionCapsule.getJailerDataSource(), this.info);
+		this.connectionId = createConnection(this.realConnectionCapsule.getJailerDataSource());
 		this.repository.watchDataSource(new ConnectionKey(this.key, this.connectionId), new DataSourceWatcher());
 	}
 	
@@ -72,7 +70,8 @@ public class JailerConnection implements Connection{
 		statementMap.put(statement, statement);
 	}
 
-	private String createConnection(JailerDataSource jailerDataSource, ConnectionInfo info) throws Exception{
+	private String createConnection(JailerDataSource jailerDataSource) throws Exception{
+		ConnectionInfo info = createConnectionInfo(jailerDataSource);
 		return repository.registConnection(this.key, info);
 	}
 
@@ -137,8 +136,7 @@ public class JailerConnection implements Connection{
 					realConnectionCapsule = newConnectionCapsule;
 					
 					// 新しいコネクションノードを生成
-					ConnectionInfo info = createConnectionInfo(realConnectionCapsule.getJailerDataSource());
-					String newConnectionId = createConnection(realConnectionCapsule.getJailerDataSource(), info);
+					String newConnectionId = createConnection(realConnectionCapsule.getJailerDataSource());
 					
 					// 生成済みのstatement数が0になるまで待機
 					long start = System.currentTimeMillis();
