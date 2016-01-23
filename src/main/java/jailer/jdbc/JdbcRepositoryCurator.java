@@ -78,15 +78,15 @@ public class JdbcRepositoryCurator {
 	public JailerDataSource getJailerDataSource(DataSourceKey key) throws Exception{
 		byte[] result = client.getData().forPath(PathManager.getDataSourceCorrentPath(key));
 		log.trace("getJailerDataSource() path : " + PathManager.getDataSourceCorrentPath(key));
-		log.trace("getJailerDataSource() result : " + encryption.decoded(result));
-		return CommonUtil.jsonToObject(encryption.decoded(result), JailerDataSource.class);
+		log.trace("getJailerDataSource() result : " + encryption.decrypt(result));
+		return CommonUtil.jsonToObject(encryption.decrypt(result), JailerDataSource.class);
 	}
 	
 	public JailerDataSource getJailerDataSourceWithWatch(ConnectionKey key, CuratorWatcher watcher) throws Exception{
 		byte[] result = client.getData().usingWatcher(watcher).forPath(PathManager.getDataSourceCorrentPath(key));
 		SessionExpiredWatcherMap.put(key, watcher);
 		log.trace("SessionExpiredWatcherMap put : " + key);
-		return CommonUtil.jsonToObject(encryption.decoded(result), JailerDataSource.class);
+		return CommonUtil.jsonToObject(encryption.decrypt(result), JailerDataSource.class);
 	}
 	
 	public void watchDataSource(ConnectionKey key, CuratorWatcher watcher) throws Exception{
@@ -107,7 +107,7 @@ public class JdbcRepositoryCurator {
 	
 	public ConnectionKeyData registConnection(DataSourceKey key, ConnectionInfo info) throws Exception{
 		String data = CommonUtil.objectToJson(info);
-		String connectionPath = client.create().withMode(CreateMode.EPHEMERAL_SEQUENTIAL).forPath(PathManager.getDataSourceCorrentPath(key) + "/", encryption.encode(data));
+		String connectionPath = client.create().withMode(CreateMode.EPHEMERAL_SEQUENTIAL).forPath(PathManager.getDataSourceCorrentPath(key) + "/", encryption.encrypt(data));
 		
 		ConnectionKeyData connectionData = new ConnectionKeyData();
 		connectionData.setServiceId(key.getServiceId());
@@ -127,7 +127,7 @@ public class JdbcRepositoryCurator {
 		if(isExistsConnectionNode(key)){
 			client.delete().forPath(PathManager.getConnectionPath(key));
 		}
-		client.create().withMode(CreateMode.EPHEMERAL).forPath(PathManager.getConnectionPath(key), encryption.encode(data));
+		client.create().withMode(CreateMode.EPHEMERAL).forPath(PathManager.getConnectionPath(key), encryption.encrypt(data));
 	}
 	
 	public void deleteConnection(ConnectionKey key) throws Exception{
@@ -147,7 +147,7 @@ public class JdbcRepositoryCurator {
 	public DataSourceKey getDataSourceKey(String uuid) throws Exception{
 		byte[] result = client.getData().forPath(PathManager.getUuidPath(uuid));
 		log.trace("getDataSourceKey() path : " + PathManager.getUuidPath(uuid));
-		return CommonUtil.jsonToObject(encryption.decoded(result), DataSourceKey.class);
+		return CommonUtil.jsonToObject(encryption.decrypt(result), DataSourceKey.class);
 	}
 
 	private class DefaultListener implements CuratorListener{
@@ -199,11 +199,11 @@ public class JdbcRepositoryCurator {
 
 	public void setWarningConnection(ConnectionKey key) throws Exception {
 		byte[] result = client.getData().forPath(PathManager.getConnectionPath(key));
-		ConnectionInfo info = CommonUtil.jsonToObject(encryption.decoded(result), ConnectionInfo.class);
+		ConnectionInfo info = CommonUtil.jsonToObject(encryption.decrypt(result), ConnectionInfo.class);
 		info.setWarning(true);
 		
 		String data = CommonUtil.objectToJson(info);
-		client.setData().forPath(PathManager.getConnectionPath(key), encryption.encode(data));
+		client.setData().forPath(PathManager.getConnectionPath(key), encryption.encrypt(data));
 		connectionKeyMap.put(key, info);
 		log.trace("connectionKeyMap put : " + key);
 	}
