@@ -26,6 +26,7 @@ import jailer.core.model.ConnectionInfo;
 import jailer.core.model.ConnectionKey;
 import jailer.core.model.DataSourceKey;
 import jailer.core.model.JailerDataSource;
+import jailer.jdbc.model.ConnectionKeyData;
 
 public class JdbcRepositoryCurator {
 	private Logger log = Logger.getLogger(JdbcRepositoryCurator.class);
@@ -47,29 +48,35 @@ public class JdbcRepositoryCurator {
 	// connectionノード再生成用
 	private Map<ConnectionKey, ConnectionInfo> connectionKeyMap = new ConcurrentHashMap<>();
 	
-	public JdbcRepositoryCurator(String connectString){
-		this(connectString, getDefaultRetryPolicy(), getDefaultZookeeperTimeOutConf());
-	}
+//	public JdbcRepositoryCurator(String connectString){
+//		this(connectString, getDefaultRetryPolicy(), getDefaultZookeeperTimeOutConf());
+//	}
 	
-	private static ZookeeperTimeOutConf getDefaultZookeeperTimeOutConf() {
-		return new ZookeeperTimeOutConf(default_sessionTimeoutMs, default_connectionTimeoutMs);
-	}
-
-	private static RetryPolicy getDefaultRetryPolicy() {
-		return new ExponentialBackoffRetry(default_baseSleepTimeMs, default_maxRetries);
-	}
-
-	public JdbcRepositoryCurator(String connectString, RetryPolicy retryPolicy, ZookeeperTimeOutConf conf){
-		this.client = CuratorFrameworkFactory.builder().
-        connectString(connectString).
-        sessionTimeoutMs(conf.getSessionTimeoutMs()).
-        connectionTimeoutMs(conf.getConnectionTimeoutMs()).
-        retryPolicy(retryPolicy).
-        build();
+//	private static ZookeeperTimeOutConf getDefaultZookeeperTimeOutConf() {
+//		return new ZookeeperTimeOutConf(default_sessionTimeoutMs, default_connectionTimeoutMs);
+//	}
+//
+//	private static RetryPolicy getDefaultRetryPolicy() {
+//		return new ExponentialBackoffRetry(default_baseSleepTimeMs, default_maxRetries);
+//	}
+	
+	public JdbcRepositoryCurator(CuratorFramework client){
+		this.client = client;
 		this.client.getCuratorListenable().addListener(new DefaultListener());
 		this.client.getConnectionStateListenable().addListener(new ReConnectedListener());
-		this.client.start();
 	}
+
+//	public JdbcRepositoryCurator(String connectString, RetryPolicy retryPolicy, ZookeeperTimeOutConf conf){
+//		this.client = CuratorFrameworkFactory.builder().
+//        connectString(connectString).
+//        sessionTimeoutMs(conf.getSessionTimeoutMs()).
+//        connectionTimeoutMs(conf.getConnectionTimeoutMs()).
+//        retryPolicy(retryPolicy).
+//        build();
+//		this.client.start();
+//		this.client.getCuratorListenable().addListener(new DefaultListener());
+//		this.client.getConnectionStateListenable().addListener(new ReConnectedListener());
+//	}
 	
 	public void close(){
 		client.close();
@@ -79,13 +86,6 @@ public class JdbcRepositoryCurator {
 		byte[] result = client.getData().forPath(PathManager.getDataSourceCorrentPath(key));
 		log.trace("getJailerDataSource() path : " + PathManager.getDataSourceCorrentPath(key));
 		log.trace("getJailerDataSource() result : " + encryption.decrypt(result));
-		return CommonUtil.jsonToObject(encryption.decrypt(result), JailerDataSource.class);
-	}
-	
-	public JailerDataSource getJailerDataSourceWithWatch(ConnectionKey key, CuratorWatcher watcher) throws Exception{
-		byte[] result = client.getData().usingWatcher(watcher).forPath(PathManager.getDataSourceCorrentPath(key));
-		SessionExpiredWatcherMap.put(key, watcher);
-		log.trace("SessionExpiredWatcherMap put : " + key);
 		return CommonUtil.jsonToObject(encryption.decrypt(result), JailerDataSource.class);
 	}
 	
@@ -118,6 +118,8 @@ public class JdbcRepositoryCurator {
 		
 		connectionKeyMap.put(connectionData, info);
 		log.trace("connectionKeyMap put : " + connectionData);
+
+		log.info("createConnection : " + connectionData);
 		
 		return connectionData;
 	}
@@ -142,6 +144,8 @@ public class JdbcRepositoryCurator {
 		SessionExpiredWatcherMap.remove(key);
 		log.trace("SessionExpiredWatcherMap after remove : "  + SessionExpiredWatcherMap);
 		log.trace("SessionExpiredWatcherMap remove : " + key);
+
+		log.info("deleteConnection : " + key);
 	}
 	
 	public DataSourceKey getDataSourceKey(String uuid) throws Exception{

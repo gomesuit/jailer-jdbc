@@ -1,5 +1,14 @@
 package jailer.jdbc;
 
+import jailer.core.model.ConnectionInfo;
+import jailer.core.model.DataSourceKey;
+import jailer.core.model.JailerDataSource;
+import jailer.jdbc.model.ConnectionCapsule;
+import jailer.jdbc.model.ConnectionKeyData;
+
+import java.net.InetAddress;
+import java.net.URI;
+import java.net.UnknownHostException;
 import java.sql.Array;
 import java.sql.Blob;
 import java.sql.CallableStatement;
@@ -15,6 +24,7 @@ import java.sql.SQLXML;
 import java.sql.Savepoint;
 import java.sql.Statement;
 import java.sql.Struct;
+import java.util.Date;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,20 +39,27 @@ public class JailerConnection implements Connection{
 	private Logger log = Logger.getLogger(JailerConnection.class);
 
 	private final JailerDriver driver;
+	private final JdbcRepositoryCurator repository;
+	private final URI jailerJdbcURI;
+	private final DataSourceKey key;
 	
-	private Connection realConnection;
 	private ConnectionKeyData connectionData;
+	private ConnectionCapsule realConnectionCapsule;
+	
 	
 	// 生成済みのstatement数
 	private Map<Statement, Statement> statementMap = new ConcurrentHashMap<>();
 	
 	private static final int RELEASE_STATEMENT_TiMEOUT_SEC = 5;
 	
-	public JailerConnection(Connection realConnection, JailerDriver driver, ConnectionKeyData connectionData) throws Exception{
-		this.realConnection = realConnection;
+	public JailerConnection(ConnectionCapsule realConnectionCapsule, JailerDriver driver, JdbcRepositoryCurator repository, DataSourceKey key, URI jailerJdbcURI) throws Exception{
+		this.realConnectionCapsule = realConnectionCapsule;
 		this.driver = driver;
-		this.connectionData = connectionData;
-		driver.dataSourceWatcher(connectionData, new DataSourceWatcher());
+		this.repository = repository;
+		this.jailerJdbcURI = jailerJdbcURI;
+		this.key = key;
+		this.connectionData = createConnection(this.realConnectionCapsule.getJailerDataSource());
+		this.repository.watchDataSource(connectionData, new DataSourceWatcher());
 	}
 	
 	public void reduceStatementNumber(Statement statement){
@@ -52,12 +69,40 @@ public class JailerConnection implements Connection{
 	public void addStatementNumber(Statement statement){
 		statementMap.put(statement, statement);
 	}
+
+	private ConnectionKeyData createConnection(JailerDataSource jailerDataSource) throws Exception{
+		ConnectionInfo connectionInfo = createConnectionInfo(jailerDataSource);
+		ConnectionKeyData connectionData = repository.registConnection(this.key, connectionInfo);
+		return connectionData;
+	}
+
+	private ConnectionInfo createConnectionInfo(JailerDataSource jailerDataSource){
+		ConnectionInfo connectionInfo = new ConnectionInfo();
+		connectionInfo.setSinceConnectTime(new Date());
+		connectionInfo.setDriverName(jailerDataSource.getDriverName());
+		connectionInfo.setConnectUrl(jailerDataSource.getUrl());
+		connectionInfo.setHide(jailerDataSource.isHide());
+		connectionInfo.setPropertyList(jailerDataSource.getPropertyList());
+		connectionInfo.setOptionalParam(JailerJdbcURIManager.getParameterMap(jailerJdbcURI));
+		
+		try {
+			InetAddress inetAddress = InetAddress.getLocalHost();
+			connectionInfo.setHost(inetAddress.getHostName());
+			connectionInfo.setIpAddress(inetAddress.getHostAddress());
+		} catch (UnknownHostException e) {
+			log.error("UnknownHostException", e);
+			connectionInfo.setHost("UnknownHost");
+			connectionInfo.setIpAddress("UnknownHostAddress");
+		}
+		
+		return connectionInfo;
+	}
 	
 	private class DataSourceWatcher implements CuratorWatcher{
 
 		@Override
 		public void process(WatchedEvent event) throws Exception {
-			if(realConnection.isClosed()) return;
+			if(realConnectionCapsule.getConnection().isClosed()) return;
 			
 			log.trace("Path : " + event.getPath());
 			log.trace("key : " + connectionData.getConnectionId());
@@ -67,356 +112,371 @@ public class JailerConnection implements Connection{
 			if(event.getType() == EventType.NodeDataChanged){
 				
 				// 新しいコネクションを生成
-				Connection newConnection = null;
+				ConnectionCapsule newConnectionCapsule = null;
 				try{
-					newConnection = driver.reCreateConnection(connectionData, new DataSourceWatcher());
-					if(newConnection == null){
-						log.info("JDBC information has not been changed. : " + connectionData);
-						return;
-					}
+					newConnectionCapsule = driver.reCreateConnection(connectionData);
+//					if(newConnection == null){
+//						log.info("JDBC information has not been changed. : " + connectionData);
+//						return;
+//					}
 				}catch(Exception e){
 					// コネクション生成失敗時の処理
 					log.error("Error occurred by reCreateConnection !!", e);
-					driver.setWarningConnection(connectionData);
+					repository.setWarningConnection(connectionData);
 					return;
+				}finally{
+					repository.watchDataSource(connectionData, new DataSourceWatcher());
 				}
+				
+				if(realConnectionCapsule.getConnection().getAutoCommit()){
 
-				// 旧コネクション退避
-				Connection oldConnection = realConnection;
-				
-				// コネクション貼り替え
-				realConnection = newConnection;
-				
-				// 新しいコネクションノードを生成
-				ConnectionKeyData newConnectionData = driver.createConnection(connectionData, connectionData.getInfo().getOptionalParam());
-				
-				// 生成済みのstatement数が0になるまで待機
-				long start = System.currentTimeMillis();
-				long end;
-				long time;
-				log.trace("Wait until the previously generated statement number becomes 0. : " + connectionData);
-				while(statementMap.size() != 0){
-					Thread.sleep(10);
-					end = System.currentTimeMillis();
-					time = (end - start) / 1000;
-					if(time >= RELEASE_STATEMENT_TiMEOUT_SEC){
-						for(Statement statement : statementMap.keySet()){
-							log.error("releasing statement is timeout. close statement!! : " + connectionData);
-							statement.close();
+					// 旧コネクション退避
+					Connection oldConnection = realConnectionCapsule.getConnection();
+					
+					// コネクション貼り替え
+					realConnectionCapsule = newConnectionCapsule;
+					
+					// 新しいコネクションノードを生成
+					ConnectionKeyData newConnectionData = createConnection(realConnectionCapsule.getJailerDataSource());
+					
+					// 生成済みのstatement数が0になるまで待機
+					long start = System.currentTimeMillis();
+					long end;
+					long time;
+					log.trace("Wait until the previously generated statement number becomes 0. : " + connectionData);
+					while(statementMap.size() != 0){
+						Thread.sleep(10);
+						end = System.currentTimeMillis();
+						time = (end - start) / 1000;
+						if(time >= RELEASE_STATEMENT_TiMEOUT_SEC){
+							for(Statement statement : statementMap.keySet()){
+								log.error("releasing statement is timeout. close statement!! : " + connectionData);
+								statement.close();
+							}
 						}
 					}
-				}
-				log.trace("The previously generated statement number becomes 0. : " + connectionData);
-				
-				// 旧コネクションクローズ
-				oldConnection.close();
-				
-				// 旧コネクション接続情報退避
-				ConnectionKeyData oldConnectionData = connectionData;
-				
-				// コネクション接続情報更新
-				connectionData = newConnectionData;
+					log.trace("The previously generated statement number becomes 0. : " + connectionData);
+					
+					// 旧コネクションクローズ
+					oldConnection.close();
+					
+					// 旧コネクション接続情報退避
+					ConnectionKeyData oldConnectionData = connectionData;
+					
+					// コネクション接続情報更新
+					connectionData = newConnectionData;
 
-				// 旧コネクション接続情報削除
-				driver.deleteConnection(oldConnectionData);
+					// 旧コネクション接続情報削除
+					repository.deleteConnection(oldConnectionData);
+					
+				}else{
+					newConnectionCapsule.getConnection().close();
+					realConnectionCapsule.getConnection().rollback();
+					close();
+				}
 			}
 		}
 	}
 
 	public Connection getRealConnection() {
-		return realConnection;
+		return realConnectionCapsule.getConnection();
 	}
 
 	@Override
 	public <T> T unwrap(Class<T> iface) throws SQLException {
-		return realConnection.unwrap(iface);
+		return getRealConnection().unwrap(iface);
 	}
 
 	@Override
 	public boolean isWrapperFor(Class<?> iface) throws SQLException {
-		return realConnection.isWrapperFor(iface);
+		return getRealConnection().isWrapperFor(iface);
 	}
 
 	@Override
 	public Statement createStatement() throws SQLException {
-		return new JailerStatement(realConnection.createStatement(), this);
+		return new JailerStatement(getRealConnection().createStatement(), this);
 	}
 
 	@Override
 	public PreparedStatement prepareStatement(String sql) throws SQLException {
-		return new JailerPreparedStatement(realConnection.prepareStatement(sql), this);
+		return new JailerPreparedStatement(getRealConnection().prepareStatement(sql), this);
 	}
 
 	@Override
 	public CallableStatement prepareCall(String sql) throws SQLException {
-		return new JailerCallableStatement(realConnection.prepareCall(sql), this);
+		return new JailerCallableStatement(getRealConnection().prepareCall(sql), this);
 	}
 
 	@Override
 	public String nativeSQL(String sql) throws SQLException {
-		return realConnection.nativeSQL(sql);
+		return getRealConnection().nativeSQL(sql);
 	}
 
 	@Override
 	public void setAutoCommit(boolean autoCommit) throws SQLException {
-		realConnection.setAutoCommit(autoCommit);
+		getRealConnection().setAutoCommit(autoCommit);
 	}
 
 	@Override
 	public boolean getAutoCommit() throws SQLException {
-		return realConnection.getAutoCommit();
+		return getRealConnection().getAutoCommit();
 	}
 
 	@Override
 	public void commit() throws SQLException {
-		realConnection.commit();
+		getRealConnection().commit();
 	}
 
 	@Override
 	public void rollback() throws SQLException {
-		realConnection.rollback();
+		getRealConnection().rollback();
 	}
 
 	@Override
 	public void close() throws SQLException {
-		realConnection.close();
-		try {
-			driver.deleteConnection(connectionData);
-		} catch (Exception e) {
-			log.error(e);
+		getRealConnection().close();
+		
+		if(connectionData != null){
+			try {
+				repository.deleteConnection(connectionData);
+			} catch (Exception e) {
+				log.error(e);
+			}
 		}
+		
+		connectionData = null;
 	}
 
 	@Override
 	public boolean isClosed() throws SQLException {
-		return realConnection.isClosed();
+		return getRealConnection().isClosed();
 	}
 
 	@Override
 	public DatabaseMetaData getMetaData() throws SQLException {
-        return realConnection.getMetaData();
+        return getRealConnection().getMetaData();
 	}
 
 	@Override
 	public void setReadOnly(boolean readOnly) throws SQLException {
-		realConnection.setReadOnly(readOnly);
+		getRealConnection().setReadOnly(readOnly);
 	}
 
 	@Override
 	public boolean isReadOnly() throws SQLException {
-		return realConnection.isReadOnly();
+		return getRealConnection().isReadOnly();
 	}
 
 	@Override
 	public void setCatalog(String catalog) throws SQLException {
-		realConnection.setCatalog(catalog);
+		getRealConnection().setCatalog(catalog);
 	}
 
 	@Override
 	public String getCatalog() throws SQLException {
-		return realConnection.getCatalog();
+		return getRealConnection().getCatalog();
 	}
 
 	@Override
 	public void setTransactionIsolation(int level) throws SQLException {
-		realConnection.setTransactionIsolation(level);
+		getRealConnection().setTransactionIsolation(level);
 	}
 
 	@Override
 	public int getTransactionIsolation() throws SQLException {
-		return realConnection.getTransactionIsolation();
+		return getRealConnection().getTransactionIsolation();
 	}
 
 	@Override
 	public SQLWarning getWarnings() throws SQLException {
-		return realConnection.getWarnings();
+		return getRealConnection().getWarnings();
 	}
 
 	@Override
 	public void clearWarnings() throws SQLException {
-		realConnection.clearWarnings();
+		getRealConnection().clearWarnings();
 	}
 
 	@Override
 	public Statement createStatement(int resultSetType, int resultSetConcurrency)
 			throws SQLException {
-		return new JailerStatement(realConnection.createStatement(resultSetType, resultSetConcurrency), this);
+		return new JailerStatement(getRealConnection().createStatement(resultSetType, resultSetConcurrency), this);
 	}
 
 	@Override
 	public PreparedStatement prepareStatement(String sql, int resultSetType,
 			int resultSetConcurrency) throws SQLException {
-		return new JailerPreparedStatement(realConnection.prepareStatement(sql, resultSetType, resultSetConcurrency), this);
+		return new JailerPreparedStatement(getRealConnection().prepareStatement(sql, resultSetType, resultSetConcurrency), this);
 	}
 
 	@Override
 	public CallableStatement prepareCall(String sql, int resultSetType,
 			int resultSetConcurrency) throws SQLException {
-		return new JailerCallableStatement(realConnection.prepareCall(sql, resultSetType, resultSetConcurrency), this);
+		return new JailerCallableStatement(getRealConnection().prepareCall(sql, resultSetType, resultSetConcurrency), this);
 	}
 
 	@Override
 	public Map<String, Class<?>> getTypeMap() throws SQLException {
-		return realConnection.getTypeMap();
+		return getRealConnection().getTypeMap();
 	}
 
 	@Override
 	public void setTypeMap(Map<String, Class<?>> map) throws SQLException {
-		realConnection.setTypeMap(map);
+		getRealConnection().setTypeMap(map);
 	}
 
 	@Override
 	public void setHoldability(int holdability) throws SQLException {
-		realConnection.setHoldability(holdability);
+		getRealConnection().setHoldability(holdability);
 	}
 
 	@Override
 	public int getHoldability() throws SQLException {
-		return realConnection.getHoldability();
+		return getRealConnection().getHoldability();
 	}
 
 	@Override
 	public Savepoint setSavepoint() throws SQLException {
-		return realConnection.setSavepoint();
+		return getRealConnection().setSavepoint();
 	}
 
 	@Override
 	public Savepoint setSavepoint(String name) throws SQLException {
-		return realConnection.setSavepoint(name);
+		return getRealConnection().setSavepoint(name);
 	}
 
 	@Override
 	public void rollback(Savepoint savepoint) throws SQLException {
-		realConnection.rollback(savepoint);
+		getRealConnection().rollback(savepoint);
 	}
 
 	@Override
 	public void releaseSavepoint(Savepoint savepoint) throws SQLException {
-		realConnection.releaseSavepoint(savepoint);
+		getRealConnection().releaseSavepoint(savepoint);
 	}
 
 	@Override
 	public Statement createStatement(int resultSetType,
 			int resultSetConcurrency, int resultSetHoldability)
 			throws SQLException {
-		return new JailerStatement(realConnection.createStatement(resultSetType, resultSetConcurrency, resultSetHoldability), this);
+		return new JailerStatement(getRealConnection().createStatement(resultSetType, resultSetConcurrency, resultSetHoldability), this);
 	}
 
 	@Override
 	public PreparedStatement prepareStatement(String sql, int resultSetType,
 			int resultSetConcurrency, int resultSetHoldability)
 			throws SQLException {
-		return new JailerPreparedStatement(realConnection.prepareStatement(sql, resultSetType, resultSetConcurrency, resultSetHoldability), this);
+		return new JailerPreparedStatement(getRealConnection().prepareStatement(sql, resultSetType, resultSetConcurrency, resultSetHoldability), this);
 	}
 
 	@Override
 	public CallableStatement prepareCall(String sql, int resultSetType,
 			int resultSetConcurrency, int resultSetHoldability)
 			throws SQLException {
-		return new JailerCallableStatement(realConnection.prepareCall(sql, resultSetType, resultSetConcurrency, resultSetHoldability), this);
+		return new JailerCallableStatement(getRealConnection().prepareCall(sql, resultSetType, resultSetConcurrency, resultSetHoldability), this);
 	}
 
 	@Override
 	public PreparedStatement prepareStatement(String sql, int autoGeneratedKeys)
 			throws SQLException {
-		return new JailerPreparedStatement(realConnection.prepareStatement(sql, autoGeneratedKeys), this);
+		return new JailerPreparedStatement(getRealConnection().prepareStatement(sql, autoGeneratedKeys), this);
 	}
 
 	@Override
 	public PreparedStatement prepareStatement(String sql, int[] columnIndexes)
 			throws SQLException {
-		return new JailerPreparedStatement(realConnection.prepareStatement(sql, columnIndexes), this);
+		return new JailerPreparedStatement(getRealConnection().prepareStatement(sql, columnIndexes), this);
 	}
 
 	@Override
 	public PreparedStatement prepareStatement(String sql, String[] columnNames)
 			throws SQLException {
-		return new JailerPreparedStatement(realConnection.prepareStatement(sql, columnNames), this);
+		return new JailerPreparedStatement(getRealConnection().prepareStatement(sql, columnNames), this);
 	}
 
 	@Override
 	public Clob createClob() throws SQLException {
-		return realConnection.createClob();
+		return getRealConnection().createClob();
 	}
 
 	@Override
 	public Blob createBlob() throws SQLException {
-		return realConnection.createBlob();
+		return getRealConnection().createBlob();
 	}
 
 	@Override
 	public NClob createNClob() throws SQLException {
-		return realConnection.createNClob();
+		return getRealConnection().createNClob();
 	}
 
 	@Override
 	public SQLXML createSQLXML() throws SQLException {
-		return realConnection.createSQLXML();
+		return getRealConnection().createSQLXML();
 	}
 
 	@Override
 	public boolean isValid(int timeout) throws SQLException {
-		return realConnection.isValid(timeout);
+		return getRealConnection().isValid(timeout);
 	}
 
 	@Override
 	public void setClientInfo(String name, String value)
 			throws SQLClientInfoException {
-		realConnection.setClientInfo(name, value);
+		getRealConnection().setClientInfo(name, value);
 	}
 
 	@Override
 	public void setClientInfo(Properties properties)
 			throws SQLClientInfoException {
-		realConnection.setClientInfo(properties);
+		getRealConnection().setClientInfo(properties);
 	}
 
 	@Override
 	public String getClientInfo(String name) throws SQLException {
-		return realConnection.getClientInfo(name);
+		return getRealConnection().getClientInfo(name);
 	}
 
 	@Override
 	public Properties getClientInfo() throws SQLException {
-		return realConnection.getClientInfo();
+		return getRealConnection().getClientInfo();
 	}
 
 	@Override
 	public Array createArrayOf(String typeName, Object[] elements)
 			throws SQLException {
-		return realConnection.createArrayOf(typeName, elements);
+		return getRealConnection().createArrayOf(typeName, elements);
 	}
 
 	@Override
 	public Struct createStruct(String typeName, Object[] attributes)
 			throws SQLException {
-		return realConnection.createStruct(typeName, attributes);
+		return getRealConnection().createStruct(typeName, attributes);
 	}
 
 	@Override
 	public void setSchema(String schema) throws SQLException {
-		realConnection.setSchema(schema);
+		getRealConnection().setSchema(schema);
 	}
 
 	@Override
 	public String getSchema() throws SQLException {
-		return realConnection.getSchema();
+		return getRealConnection().getSchema();
 	}
 
 	@Override
 	public void abort(Executor executor) throws SQLException {
-		realConnection.abort(executor);
+		getRealConnection().abort(executor);
 	}
 
 	@Override
 	public void setNetworkTimeout(Executor executor, int milliseconds)
 			throws SQLException {
-		realConnection.setNetworkTimeout(executor, milliseconds);
+		getRealConnection().setNetworkTimeout(executor, milliseconds);
 	}
 
 	@Override
 	public int getNetworkTimeout() throws SQLException {
-		return realConnection.getNetworkTimeout();
+		return getRealConnection().getNetworkTimeout();
 	}
 
 }

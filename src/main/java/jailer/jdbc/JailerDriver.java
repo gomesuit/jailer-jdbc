@@ -1,16 +1,13 @@
 package jailer.jdbc;
 
-import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.UnknownHostException;
 import java.sql.Connection;
 import java.sql.Driver;
 import java.sql.DriverManager;
 import java.sql.DriverPropertyInfo;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
-import java.util.Date;
 import java.util.Enumeration;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -18,14 +15,15 @@ import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
-import org.apache.curator.framework.api.CuratorWatcher;
-import org.apache.zookeeper.KeeperException;
+import org.apache.curator.framework.CuratorFramework;
+import org.apache.curator.framework.CuratorFrameworkFactory;
+import org.apache.curator.retry.ExponentialBackoffRetry;
 
-import jailer.core.model.ConnectionInfo;
-import jailer.core.model.ConnectionKey;
 import jailer.core.model.DataSourceKey;
 import jailer.core.model.JailerDataSource;
 import jailer.core.model.PropertyContents;
+import jailer.jdbc.model.ConnectionCapsule;
+import jailer.jdbc.model.ConnectionKeyData;
 
 public class JailerDriver implements Driver{
 	private org.apache.log4j.Logger log = org.apache.log4j.Logger.getLogger(JailerDriver.class);
@@ -47,8 +45,8 @@ public class JailerDriver implements Driver{
 		}
 	}
 	
-	public Connection reCreateConnection(ConnectionKeyData connectionData, CuratorWatcher watcher) throws Exception{
-		JailerDataSource jailerDataSource = repository.getJailerDataSourceWithWatch(connectionData, watcher);
+	public ConnectionCapsule reCreateConnection(ConnectionKeyData connectionData) throws Exception{
+		JailerDataSource jailerDataSource = repository.getJailerDataSource(connectionData);
 //		if(!isChange(connectionData, jailerDataSource)){
 //			return null;
 //		}
@@ -67,7 +65,7 @@ public class JailerDriver implements Driver{
 		
 		JailerDataSourceCache.put(jailerDataSource.getUuid(), jailerDataSource);
 		
-		return newConnection;
+		return new ConnectionCapsule(newConnection, jailerDataSource);
 	}
 	
 //	public boolean isChange(ConnectionKeyData connectionData, JailerDataSource newJailerDataSource){
@@ -93,50 +91,18 @@ public class JailerDriver implements Driver{
 //		
 //		return false;
 //	}
-
-	public ConnectionKeyData createConnection(DataSourceKey key, Map<String, String> optionalParam) throws Exception{
-		JailerDataSource jailerDataSource = repository.getJailerDataSource(key);
-		ConnectionInfo connectionInfo = createConnectionInfo(jailerDataSource, optionalParam);
-		
-		ConnectionKeyData connectionData = repository.registConnection(key, connectionInfo);
-		log.info("createConnection : " + connectionData);
-		return connectionData;
-	}
 	
-	private ConnectionInfo createConnectionInfo(JailerDataSource jailerDataSource, Map<String, String> optionalParam){
-		ConnectionInfo connectionInfo = new ConnectionInfo();
-		connectionInfo.setSinceConnectTime(new Date());
-		connectionInfo.setDriverName(jailerDataSource.getDriverName());
-		connectionInfo.setConnectUrl(jailerDataSource.getUrl());
-		connectionInfo.setHide(jailerDataSource.isHide());
-		connectionInfo.setPropertyList(jailerDataSource.getPropertyList());
-		connectionInfo.setOptionalParam(optionalParam);
-		
-		try {
-			InetAddress inetAddress = InetAddress.getLocalHost();
-			connectionInfo.setHost(inetAddress.getHostName());
-			connectionInfo.setIpAddress(inetAddress.getHostAddress());
-		} catch (UnknownHostException e) {
-			log.error("UnknownHostException", e);
-			connectionInfo.setHost("UnknownHost");
-			connectionInfo.setIpAddress("UnknownHostAddress");
-		}
-		
-		return connectionInfo;
-	}
-	
-	public void deleteConnection(ConnectionKey key) throws Exception{
-		repository.deleteConnection(key);
-		log.info("deleteConnection : " + key);
-	}
-	
-	public void dataSourceWatcher(ConnectionKey key, CuratorWatcher watcher) throws Exception{
-		repository.watchDataSource(key, watcher);
-	}
-	
-	public void setWarningConnection(ConnectionKey key) throws Exception{
-		repository.setWarningConnection(key);
-	}
+//	public void deleteConnection(ConnectionKey key) throws Exception{
+//		repository.deleteConnection(key);
+//	}
+//	
+//	public void dataSourceWatcher(ConnectionKey key, CuratorWatcher watcher) throws Exception{
+//		repository.watchDataSource(key, watcher);
+//	}
+//	
+//	public void setWarningConnection(ConnectionKey key) throws Exception{
+//		repository.setWarningConnection(key);
+//	}
 	
 	private JailerDataSource getJailerDataSource(URI uri) throws Exception{
 		String connectString = JailerJdbcURIManager.getConnectString(uri);
@@ -144,19 +110,25 @@ public class JailerDriver implements Driver{
 		// synchronized
 		this.repository = getRepository(connectString);
 		String uuid = JailerJdbcURIManager.getUUID(uri);
-		try{
-			DataSourceKey key = repository.getDataSourceKey(uuid);
-			JailerDataSource jailerDataSource = repository.getJailerDataSource(key);
-			JailerDataSourceCache.put(uuid, jailerDataSource);
-			return jailerDataSource;
-		}catch(KeeperException e){
-			return JailerDataSourceCache.get(uuid);
-		}
+		DataSourceKey key = repository.getDataSourceKey(uuid);
+		JailerDataSource jailerDataSource = repository.getJailerDataSource(key);
+		return jailerDataSource;
 	}
+	
+	private CuratorFramework client;
 	
 	synchronized private JdbcRepositoryCurator getRepository(String connectString){
 		if(this.repository == null){
-			return new JdbcRepositoryCurator(connectString);
+
+			this.client = CuratorFrameworkFactory.builder().
+	        connectString(connectString).
+	        sessionTimeoutMs(20 * 1000).
+	        connectionTimeoutMs(10 * 1000).
+	        retryPolicy(new ExponentialBackoffRetry(1000, 3)).
+	        build();
+			this.client.start();
+			
+			return new JdbcRepositoryCurator(this.client);
 		}else{
 			return this.repository;
 		}
@@ -188,8 +160,8 @@ public class JailerDriver implements Driver{
 		
 		try {
 			DataSourceKey key = repository.getDataSourceKey(JailerJdbcURIManager.getUUID(jailerJdbcURI));
-			ConnectionKeyData connectionData = createConnection(key, JailerJdbcURIManager.getParameterMap(jailerJdbcURI));
-			return new JailerConnection(d.connect(realUrl, info), this, connectionData);
+			Connection realConnection = d.connect(realUrl, info);
+			return new JailerConnection(new ConnectionCapsule(realConnection, jailerDataSource), this, repository, key, jailerJdbcURI);
 		} catch (Exception e) {
 			throw new SQLException(e);
 		}

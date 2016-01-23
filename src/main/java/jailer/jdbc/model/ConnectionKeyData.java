@@ -1,4 +1,4 @@
-package jailer.jdbc;
+package jailer.jdbc.model;
 
 import jailer.core.model.ConnectionInfo;
 import jailer.core.model.ConnectionKey;
