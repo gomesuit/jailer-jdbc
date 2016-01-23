@@ -78,10 +78,12 @@ public class JdbcRepositoryCurator {
 //		this.client.getConnectionStateListenable().addListener(new ReConnectedListener());
 //	}
 	
-	public void close(){
-		client.close();
+	public DataSourceKey getDataSourceKey(String uuid) throws Exception{
+		byte[] result = client.getData().forPath(PathManager.getUuidPath(uuid));
+		log.trace("getDataSourceKey() path : " + PathManager.getUuidPath(uuid));
+		return CommonUtil.jsonToObject(encryption.decrypt(result), DataSourceKey.class);
 	}
-	
+
 	public JailerDataSource getJailerDataSource(DataSourceKey key) throws Exception{
 		byte[] result = client.getData().forPath(PathManager.getDataSourceCorrentPath(key));
 		log.trace("getJailerDataSource() path : " + PathManager.getDataSourceCorrentPath(key));
@@ -132,6 +134,17 @@ public class JdbcRepositoryCurator {
 		client.create().withMode(CreateMode.EPHEMERAL).forPath(PathManager.getConnectionPath(key), encryption.encrypt(data));
 	}
 	
+	public void setWarningConnection(ConnectionKey key) throws Exception {
+		byte[] result = client.getData().forPath(PathManager.getConnectionPath(key));
+		ConnectionInfo info = CommonUtil.jsonToObject(encryption.decrypt(result), ConnectionInfo.class);
+		info.setWarning(true);
+		
+		String data = CommonUtil.objectToJson(info);
+		client.setData().forPath(PathManager.getConnectionPath(key), encryption.encrypt(data));
+		connectionKeyMap.put(key, info);
+		log.trace("connectionKeyMap put : " + key);
+	}
+
 	public void deleteConnection(ConnectionKey key) throws Exception{
 		client.delete().guaranteed().forPath(PathManager.getConnectionPath(key));
 		
@@ -148,12 +161,6 @@ public class JdbcRepositoryCurator {
 		log.info("deleteConnection : " + key);
 	}
 	
-	public DataSourceKey getDataSourceKey(String uuid) throws Exception{
-		byte[] result = client.getData().forPath(PathManager.getUuidPath(uuid));
-		log.trace("getDataSourceKey() path : " + PathManager.getUuidPath(uuid));
-		return CommonUtil.jsonToObject(encryption.decrypt(result), DataSourceKey.class);
-	}
-
 	private class DefaultListener implements CuratorListener{
 
 		@Override
@@ -201,15 +208,20 @@ public class JdbcRepositoryCurator {
 		
 	}
 
-	public void setWarningConnection(ConnectionKey key) throws Exception {
-		byte[] result = client.getData().forPath(PathManager.getConnectionPath(key));
-		ConnectionInfo info = CommonUtil.jsonToObject(encryption.decrypt(result), ConnectionInfo.class);
-		info.setWarning(true);
+	//	public JdbcRepositoryCurator(String connectString, RetryPolicy retryPolicy, ZookeeperTimeOutConf conf){
+	//		this.client = CuratorFrameworkFactory.builder().
+	//        connectString(connectString).
+	//        sessionTimeoutMs(conf.getSessionTimeoutMs()).
+	//        connectionTimeoutMs(conf.getConnectionTimeoutMs()).
+	//        retryPolicy(retryPolicy).
+	//        build();
+	//		this.client.start();
+	//		this.client.getCuratorListenable().addListener(new DefaultListener());
+	//		this.client.getConnectionStateListenable().addListener(new ReConnectedListener());
+	//	}
 		
-		String data = CommonUtil.objectToJson(info);
-		client.setData().forPath(PathManager.getConnectionPath(key), encryption.encrypt(data));
-		connectionKeyMap.put(key, info);
-		log.trace("connectionKeyMap put : " + key);
-	}
+		public void close(){
+			client.close();
+		}
 	
 }
