@@ -1,5 +1,6 @@
 package jailer.jdbc;
 
+import java.sql.Statement;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
@@ -41,6 +42,8 @@ public class JdbcRepositoryCurator {
 	private static final int default_baseSleepTimeMs = 1000;
 	private static final int default_maxRetries = 3;
 	
+	private ConnectionState connectionState = null;
+	
 	// 再Watch用Map
 	private Map<ConnectionKey, CuratorWatcher> SessionExpiredWatcherMap = new ConcurrentHashMap<>();
 	
@@ -77,30 +80,57 @@ public class JdbcRepositoryCurator {
 		this.client.getConnectionStateListenable().addListener(new ReConnectedListener());
 	}
 	
+	private Map<String, DataSourceKey> dataSourceKeyCache = new ConcurrentHashMap<>();
+	
 	public DataSourceKey getDataSourceKey(String uuid) throws Exception{
+		if(!isConnected()){
+			return dataSourceKeyCache.get(uuid);
+		}
+		
 		byte[] result = client.getData().forPath(PathManager.getUuidPath(uuid));
 		log.trace("getDataSourceKey() path : " + PathManager.getUuidPath(uuid));
-		return CommonUtil.jsonToObject(encryption.decrypt(result), DataSourceKey.class);
+		DataSourceKey key = CommonUtil.jsonToObject(encryption.decrypt(result), DataSourceKey.class);
+		dataSourceKeyCache.put(uuid, key);
+		
+		return key;
 	}
-
+	
+	private Map<DataSourceKey, JailerDataSource> jailerDataSourceCache = new ConcurrentHashMap<>();
+	
 	public JailerDataSource getJailerDataSource(DataSourceKey key) throws Exception{
+		if(!isConnected()){
+			return jailerDataSourceCache.get(key);
+		}
+		
 		byte[] result = client.getData().forPath(PathManager.getDataSourceCorrentPath(key));
 		log.trace("getJailerDataSource() path : " + PathManager.getDataSourceCorrentPath(key));
 		log.trace("getJailerDataSource() result : " + encryption.decrypt(result));
-		return CommonUtil.jsonToObject(encryption.decrypt(result), JailerDataSource.class);
+		JailerDataSource jailerDataSource = CommonUtil.jsonToObject(encryption.decrypt(result), JailerDataSource.class);
+		jailerDataSourceCache.put(key, jailerDataSource);
+		
+		return jailerDataSource;
 	}
 	
 	public void watchDataSource(ConnectionKey key, CuratorWatcher watcher) throws Exception{
-		client.checkExists().usingWatcher(watcher).forPath(PathManager.getDataSourceCorrentPath(key));
+		if(isConnected()){
+			client.checkExists().usingWatcher(watcher).forPath(PathManager.getDataSourceCorrentPath(key));
+		}
+		
 		SessionExpiredWatcherMap.put(key, watcher);
 		log.trace("SessionExpiredWatcherMap put : " + key);
 	}
 	
 	public String registConnection(DataSourceKey key, ConnectionInfo info) throws Exception{
 		String data = CommonUtil.objectToJson(info);
-		String connectionPath = client.create().withMode(CreateMode.EPHEMERAL_SEQUENTIAL).forPath(PathManager.getDataSourceCorrentPath(key) + "/", encryption.encrypt(data));
 		
-		String connectionId = (connectionPath.substring(connectionPath.length() - 10, connectionPath.length()));
+		String connectionId = null;
+		if(isConnected()){
+			String connectionPath = client.create().withMode(CreateMode.EPHEMERAL_SEQUENTIAL).forPath(PathManager.getDataSourceCorrentPath(key) + "/", encryption.encrypt(data));
+			connectionId = (connectionPath.substring(connectionPath.length() - 10, connectionPath.length()));
+		}else{
+			connectionId = DisConnectedNodeIdManager.getId();
+		}
+		
 		connectionKeyMap.put(new ConnectionKey(key, connectionId), info);
 		log.trace("connectionKeyMap put : " + connectionId);
 		
@@ -108,6 +138,8 @@ public class JdbcRepositoryCurator {
 	}
 	
 	public void repairConnectionNode(ConnectionKey key, ConnectionInfo info) throws Exception{
+		if(!isConnected()) return;
+		
 		String data = CommonUtil.objectToJson(info);
 		if(isExistsConnectionNode(key)){
 			client.delete().forPath(PathManager.getConnectionPath(key));
@@ -126,18 +158,27 @@ public class JdbcRepositoryCurator {
 	}
 
 	public void setWarningConnection(ConnectionKey key) throws Exception {
-		byte[] result = client.getData().forPath(PathManager.getConnectionPath(key));
-		ConnectionInfo info = CommonUtil.jsonToObject(encryption.decrypt(result), ConnectionInfo.class);
+		ConnectionInfo info = null;
+		if(isConnected()){
+			byte[] result = client.getData().forPath(PathManager.getConnectionPath(key));
+			info = CommonUtil.jsonToObject(encryption.decrypt(result), ConnectionInfo.class);
+		}else{
+			info = connectionKeyMap.get(key);
+		}
 		info.setWarning(true);
 		
 		String data = CommonUtil.objectToJson(info);
-		client.setData().forPath(PathManager.getConnectionPath(key), encryption.encrypt(data));
+		if(isConnected()){
+			client.setData().forPath(PathManager.getConnectionPath(key), encryption.encrypt(data));
+		}
 		connectionKeyMap.put(key, info);
 		log.trace("connectionKeyMap put : " + key);
 	}
 
 	public void deleteConnection(ConnectionKey key) throws Exception{
-		client.delete().guaranteed().forPath(PathManager.getConnectionPath(key));
+		if(isConnected()){
+			client.delete().guaranteed().forPath(PathManager.getConnectionPath(key));
+		}
 		
 		log.trace("connectionKeyMap before remove : " + connectionKeyMap);
 		connectionKeyMap.remove(key);
@@ -164,11 +205,20 @@ public class JdbcRepositoryCurator {
 		
 	}
 	
+	private boolean isConnected(){
+		if(connectionState == null) return false;
+		if(connectionState == ConnectionState.LOST) return false;
+		if(connectionState == ConnectionState.SUSPENDED) return false;
+		return true;
+	}
+	
 	private class ReConnectedListener implements ConnectionStateListener{
 
 		@Override
 		public void stateChanged(CuratorFramework client, ConnectionState newState) {
 			log.debug("ReConnectedListener newState : " + newState);
+			connectionState = newState;
+			
 			switch(newState){
 				
 			case RECONNECTED:
