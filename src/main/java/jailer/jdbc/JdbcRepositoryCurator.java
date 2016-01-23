@@ -1,7 +1,6 @@
 package jailer.jdbc;
 
 import java.net.InetAddress;
-import java.sql.Statement;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;

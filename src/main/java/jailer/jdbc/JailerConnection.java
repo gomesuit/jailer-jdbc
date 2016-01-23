@@ -37,14 +37,16 @@ import org.apache.zookeeper.Watcher.Event.EventType;
 
 public class JailerConnection implements Connection{
 	private Logger log = Logger.getLogger(JailerConnection.class);
-
+	
 	private final JailerDriver driver;
 	private final JdbcRepositoryCurator repository;
 	private final URI jailerJdbcURI;
 	private final DataSourceKey key;
 	
+	// Driverからの引き渡しデータ用
 	private ConnectionCapsule realConnectionCapsule;
 	
+	// datanode上のID
 	private String connectionId;
 	
 	// 生成済みのstatement数
