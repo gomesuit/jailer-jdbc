@@ -91,18 +91,6 @@ public class JailerDriver implements Driver{
 //		return false;
 //	}
 	
-//	public void deleteConnection(ConnectionKey key) throws Exception{
-//		repository.deleteConnection(key);
-//	}
-//	
-//	public void dataSourceWatcher(ConnectionKey key, CuratorWatcher watcher) throws Exception{
-//		repository.watchDataSource(key, watcher);
-//	}
-//	
-//	public void setWarningConnection(ConnectionKey key) throws Exception{
-//		repository.setWarningConnection(key);
-//	}
-	
 	private JailerDataSource getJailerDataSource(URI uri) throws Exception{
 		String connectString = JailerJdbcURIManager.getConnectString(uri);
 		
@@ -114,20 +102,9 @@ public class JailerDriver implements Driver{
 		return jailerDataSource;
 	}
 	
-	private CuratorFramework client;
-	
 	synchronized private JdbcRepositoryCurator getRepository(String connectString){
 		if(this.repository == null){
-
-			this.client = CuratorFrameworkFactory.builder().
-	        connectString(connectString).
-	        sessionTimeoutMs(20 * 1000).
-	        connectionTimeoutMs(10 * 1000).
-	        retryPolicy(new ExponentialBackoffRetry(1000, 3)).
-	        build();
-			this.client.start();
-			
-			return new JdbcRepositoryCurator(this.client);
+			return new JdbcRepositoryCurator(connectString);
 		}else{
 			return this.repository;
 		}

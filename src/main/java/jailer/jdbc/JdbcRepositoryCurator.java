@@ -47,17 +47,17 @@ public class JdbcRepositoryCurator {
 	// connectionノード再生成用
 	private Map<ConnectionKey, ConnectionInfo> connectionKeyMap = new ConcurrentHashMap<>();
 	
-//	public JdbcRepositoryCurator(String connectString){
-//		this(connectString, getDefaultRetryPolicy(), getDefaultZookeeperTimeOutConf());
-//	}
-	
-//	private static ZookeeperTimeOutConf getDefaultZookeeperTimeOutConf() {
-//		return new ZookeeperTimeOutConf(default_sessionTimeoutMs, default_connectionTimeoutMs);
-//	}
-//
-//	private static RetryPolicy getDefaultRetryPolicy() {
-//		return new ExponentialBackoffRetry(default_baseSleepTimeMs, default_maxRetries);
-//	}
+	public JdbcRepositoryCurator(String connectString){
+		this(connectString, getDefaultRetryPolicy(), getDefaultZookeeperTimeOutConf());
+	}
+
+	private static ZookeeperTimeOutConf getDefaultZookeeperTimeOutConf() {
+		return new ZookeeperTimeOutConf(default_sessionTimeoutMs, default_connectionTimeoutMs);
+	}
+
+	private static RetryPolicy getDefaultRetryPolicy() {
+		return new ExponentialBackoffRetry(default_baseSleepTimeMs, default_maxRetries);
+	}
 	
 	public JdbcRepositoryCurator(CuratorFramework client){
 		this.client = client;
@@ -65,17 +65,17 @@ public class JdbcRepositoryCurator {
 		this.client.getConnectionStateListenable().addListener(new ReConnectedListener());
 	}
 
-//	public JdbcRepositoryCurator(String connectString, RetryPolicy retryPolicy, ZookeeperTimeOutConf conf){
-//		this.client = CuratorFrameworkFactory.builder().
-//        connectString(connectString).
-//        sessionTimeoutMs(conf.getSessionTimeoutMs()).
-//        connectionTimeoutMs(conf.getConnectionTimeoutMs()).
-//        retryPolicy(retryPolicy).
-//        build();
-//		this.client.start();
-//		this.client.getCuratorListenable().addListener(new DefaultListener());
-//		this.client.getConnectionStateListenable().addListener(new ReConnectedListener());
-//	}
+	public JdbcRepositoryCurator(String connectString, RetryPolicy retryPolicy, ZookeeperTimeOutConf conf){
+		this.client = CuratorFrameworkFactory.builder().
+        connectString(connectString).
+        sessionTimeoutMs(conf.getSessionTimeoutMs()).
+        connectionTimeoutMs(conf.getConnectionTimeoutMs()).
+        retryPolicy(retryPolicy).
+        build();
+		this.client.start();
+		this.client.getCuratorListenable().addListener(new DefaultListener());
+		this.client.getConnectionStateListenable().addListener(new ReConnectedListener());
+	}
 	
 	public DataSourceKey getDataSourceKey(String uuid) throws Exception{
 		byte[] result = client.getData().forPath(PathManager.getUuidPath(uuid));
@@ -100,17 +100,9 @@ public class JdbcRepositoryCurator {
 		String data = CommonUtil.objectToJson(info);
 		String connectionPath = client.create().withMode(CreateMode.EPHEMERAL_SEQUENTIAL).forPath(PathManager.getDataSourceCorrentPath(key) + "/", encryption.encrypt(data));
 		
-//		ConnectionKeyData connectionData = new ConnectionKeyData();
-//		connectionData.setServiceId(key.getServiceId());
-//		connectionData.setGroupId(key.getGroupId());
-//		connectionData.setDataSourceId(key.getDataSourceId());
-//		connectionData.setConnectionId(connectionPath.substring(connectionPath.length() - 10, connectionPath.length()));
-//		connectionData.setInfo(info);
 		String connectionId = (connectionPath.substring(connectionPath.length() - 10, connectionPath.length()));
 		connectionKeyMap.put(new ConnectionKey(key, connectionId), info);
-//		log.trace("connectionKeyMap put : " + connectionData);
-//
-//		log.info("createConnection : " + connectionData);
+		log.trace("connectionKeyMap put : " + connectionId);
 		
 		return connectionId;
 	}
@@ -206,21 +198,9 @@ public class JdbcRepositoryCurator {
 		}
 		
 	}
-
-	//	public JdbcRepositoryCurator(String connectString, RetryPolicy retryPolicy, ZookeeperTimeOutConf conf){
-	//		this.client = CuratorFrameworkFactory.builder().
-	//        connectString(connectString).
-	//        sessionTimeoutMs(conf.getSessionTimeoutMs()).
-	//        connectionTimeoutMs(conf.getConnectionTimeoutMs()).
-	//        retryPolicy(retryPolicy).
-	//        build();
-	//		this.client.start();
-	//		this.client.getCuratorListenable().addListener(new DefaultListener());
-	//		this.client.getConnectionStateListenable().addListener(new ReConnectedListener());
-	//	}
 		
-		public void close(){
-			client.close();
-		}
+	public void close(){
+		client.close();
+	}
 	
 }
