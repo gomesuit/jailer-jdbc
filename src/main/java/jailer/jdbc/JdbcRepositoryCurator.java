@@ -42,7 +42,7 @@ public class JdbcRepositoryCurator {
 	private static final int default_baseSleepTimeMs = 1000;
 	private static final int default_maxRetries = 3;
 	
-	private ConnectionState connectionState = null;
+	private ConnectionState connectionState = ConnectionState.CONNECTED;
 	
 	// 再Watch用Map
 	private Map<ConnectionKey, CuratorWatcher> SessionExpiredWatcherMap = new ConcurrentHashMap<>();
