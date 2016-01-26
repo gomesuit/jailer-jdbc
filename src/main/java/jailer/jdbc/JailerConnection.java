@@ -103,7 +103,10 @@ public class JailerConnection implements Connection{
 
 		@Override
 		public void process(WatchedEvent event) throws Exception {
-			if(realConnectionCapsule.getConnection().isClosed()) return;
+			if(realConnectionCapsule.getConnection().isClosed()){
+				close();
+				return;
+			}
 			
 			log.trace("Path : " + event.getPath());
 			log.trace("key : " + connectionId);
@@ -114,15 +117,24 @@ public class JailerConnection implements Connection{
 				
 				// 新しいコネクションを生成
 				ConnectionCapsule newConnectionCapsule = null;
+				String newConnectionId = null;
 				try{
 					newConnectionCapsule = driver.reCreateConnection(key);
+					// 新しいコネクションノードを生成
+					newConnectionId = createConnection(newConnectionCapsule.getJailerDataSource());
+					repository.watchDataSource(new ConnectionKey(key, newConnectionId), new DataSourceWatcher());
 				}catch(Exception e){
 					// コネクション生成失敗時の処理
 					log.error("Error occurred by reCreateConnection !!", e);
-					repository.setWarningConnection(new ConnectionKey(key, connectionId));
-					return;
-				}finally{
 					repository.watchDataSource(new ConnectionKey(key, connectionId), new DataSourceWatcher());
+					repository.setWarningConnection(new ConnectionKey(key, connectionId));
+					if(newConnectionCapsule != null && !newConnectionCapsule.getConnection().isClosed()){
+						newConnectionCapsule.getConnection().close();
+					}
+					if(newConnectionId != null){
+						repository.deleteConnection(new ConnectionKey(key, newConnectionId));
+					}
+					return;
 				}
 				
 				if(realConnectionCapsule.getConnection().getAutoCommit()){
@@ -133,26 +145,8 @@ public class JailerConnection implements Connection{
 					// コネクション貼り替え
 					realConnectionCapsule = newConnectionCapsule;
 					
-					// 新しいコネクションノードを生成
-					String newConnectionId = createConnection(realConnectionCapsule.getJailerDataSource());
-					
 					// 生成済みのstatement数が0になるまで待機
-					long start = System.currentTimeMillis();
-					long end;
-					long time;
-					log.trace("Wait until the previously generated statement number becomes 0. : " + connectionId);
-					while(statementMap.size() != 0){
-						Thread.sleep(10);
-						end = System.currentTimeMillis();
-						time = (end - start) / 1000;
-						if(time >= RELEASE_STATEMENT_TiMEOUT_SEC){
-							for(Statement statement : statementMap.keySet()){
-								log.error("releasing statement is timeout. close statement!! : " + connectionId);
-								statement.close();
-							}
-						}
-					}
-					log.trace("The previously generated statement number becomes 0. : " + connectionId);
+					closeStatement(statementMap, RELEASE_STATEMENT_TiMEOUT_SEC);
 					
 					// 旧コネクションクローズ
 					oldConnection.close();
@@ -167,11 +161,32 @@ public class JailerConnection implements Connection{
 					repository.deleteConnection(new ConnectionKey(key, oldConnectionId));
 					
 				}else{
+					// ロールバック＆クローズ
 					newConnectionCapsule.getConnection().close();
 					realConnectionCapsule.getConnection().rollback();
 					close();
+					repository.deleteConnection(new ConnectionKey(key, newConnectionId));
 				}
 			}
+		}
+		
+		private void closeStatement(Map<Statement, Statement> statementMap, int maxWaitTime) throws Exception{
+			long start = System.currentTimeMillis();
+			long end;
+			long time;
+			log.trace("Wait until the previously generated statement number becomes 0. : " + connectionId);
+			while(statementMap.size() != 0){
+				Thread.sleep(10);
+				end = System.currentTimeMillis();
+				time = (end - start) / 1000;
+				if(time >= maxWaitTime){
+					for(Statement statement : statementMap.keySet()){
+						log.error("releasing statement is timeout. close statement!! : " + connectionId);
+						statement.close();
+					}
+				}
+			}
+			log.trace("The previously generated statement number becomes 0. : " + connectionId);
 		}
 	}
 

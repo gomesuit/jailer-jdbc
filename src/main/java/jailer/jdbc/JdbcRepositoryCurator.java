@@ -12,7 +12,7 @@ import org.apache.curator.framework.api.CuratorListener;
 import org.apache.curator.framework.api.CuratorWatcher;
 import org.apache.curator.framework.state.ConnectionState;
 import org.apache.curator.framework.state.ConnectionStateListener;
-import org.apache.curator.retry.ExponentialBackoffRetry;
+import org.apache.curator.retry.RetryNTimes;
 import org.apache.log4j.Logger;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.data.Stat;
@@ -33,13 +33,13 @@ public class JdbcRepositoryCurator {
 	private final CuratorFramework client;
 	private final JailerEncryption encryption = new JailerAESEncryption();
 
-	// Timeout
-	private static final int default_sessionTimeoutMs = 20 * 1000;
-	private static final int default_connectionTimeoutMs = 10 * 1000;
+	// zookeeper timeout
+	private static final int default_sessionTimeoutMs = 3 * 1000;
+	private static final int default_connectionTimeoutMs = 2 * 1000;
 	
-	// ExponentialBackoffRetry
-	private static final int default_baseSleepTimeMs = 1000;
-	private static final int default_maxRetries = 3;
+	// RetryNTimes
+	private static final int default_retry_times = 2;
+	private static final int default_sleepMsBetweenRetries = 1000;
 	
 	private ConnectionState connectionState = ConnectionState.CONNECTED;
 	
@@ -58,7 +58,7 @@ public class JdbcRepositoryCurator {
 	}
 
 	private static RetryPolicy getDefaultRetryPolicy() {
-		return new ExponentialBackoffRetry(default_baseSleepTimeMs, default_maxRetries);
+		return new RetryNTimes(default_retry_times, default_sleepMsBetweenRetries);
 	}
 	
 	public JdbcRepositoryCurator(CuratorFramework client){
@@ -101,8 +101,8 @@ public class JdbcRepositoryCurator {
 			return jailerDataSourceCache.get(key);
 		}
 		
-		byte[] result = client.getData().forPath(PathManager.getDataSourceCorrentPath(key));
-		log.trace("getJailerDataSource() path : " + PathManager.getDataSourceCorrentPath(key));
+		byte[] result = client.getData().forPath(PathManager.getDataSourceCurrentPath(key));
+		log.trace("getJailerDataSource() path : " + PathManager.getDataSourceCurrentPath(key));
 		log.trace("getJailerDataSource() result : " + encryption.decrypt(result));
 		JailerDataSource jailerDataSource = CommonUtil.jsonToObject(encryption.decrypt(result), JailerDataSource.class);
 		jailerDataSourceCache.put(key, jailerDataSource);
@@ -112,7 +112,7 @@ public class JdbcRepositoryCurator {
 	
 	public void watchDataSource(ConnectionKey key, CuratorWatcher watcher) throws Exception{
 		if(isConnected()){
-			client.checkExists().usingWatcher(watcher).forPath(PathManager.getDataSourceCorrentPath(key));
+			client.checkExists().usingWatcher(watcher).forPath(PathManager.getDataSourceCurrentPath(key));
 		}
 		
 		SessionExpiredWatcherMap.put(key, watcher);
@@ -124,7 +124,7 @@ public class JdbcRepositoryCurator {
 		
 		String connectionId = null;
 		if(isConnected()){
-			String connectionPath = client.create().withMode(CreateMode.EPHEMERAL_SEQUENTIAL).forPath(PathManager.getDataSourceCorrentPath(key) + "/", encryption.encrypt(data));
+			String connectionPath = client.create().withMode(CreateMode.EPHEMERAL_SEQUENTIAL).forPath(PathManager.getDataSourceCurrentPath(key) + "/", encryption.encrypt(data));
 			connectionId = (connectionPath.substring(connectionPath.length() - 10, connectionPath.length()));
 		}else{
 			connectionId = CommonUtil.getRandomUUID();
